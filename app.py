@@ -8,11 +8,12 @@ pyautogui.PAUSE=0
 
 def success_banner(frame):
     hsv=cv2.cvtColor(frame,cv2.COLOR_RGB2HSV)
-    mask=cv2.inRange(hsv,np.array([15,105,150]),np.array([42,255,255]))
-    h,w=mask.shape; roi=mask[int(h*.18):int(h*.88),int(w*.12):int(w*.88)]
-    roi=cv2.morphologyEx(roi,cv2.MORPH_CLOSE,np.ones((7,7),np.uint8))
-    n,_,stats,_=cv2.connectedComponentsWithStats(roi,8)
-    return any(stats[i,cv2.CC_STAT_AREA]>180 for i in range(1,n))
+    mask=cv2.inRange(hsv,np.array([15,120,232]),np.array([42,255,255]))
+    h,w=mask.shape; roi=mask[int(h*.22):int(h*.82),int(w*.18):int(w*.82)]
+    roi=cv2.morphologyEx(roi,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
+    # Gold success lettering is bright and concentrated near the center;
+    # the rock-texture background is darker and is excluded by V >= 232.
+    return cv2.countNonZero(roi)>650
 
 def confirm_button(frame):
     hsv=cv2.cvtColor(frame,cv2.COLOR_RGB2HSV)
