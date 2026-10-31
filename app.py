@@ -55,7 +55,7 @@ class App:
         self.stop_btn=ttk.Button(row,text="停止",command=self.stop,state="disabled"); self.stop_btn.pack(side="left",expand=True,fill="x",padx=4)
         ttk.Label(self.root,textvariable=self.status,font=("Microsoft YaHei UI",10,"bold")).pack(pady=8)
         ttk.Label(self.root,textvariable=self.backend_status,foreground="#245").pack()
-        ttk.Label(self.root,text="CUDA 加速白色掩膜；区域分析、背景模型和鼠标控制仍由 CPU 执行。",foreground="#666").pack(pady=3)
+        ttk.Label(self.root,text="OpenCL 自动调用 Intel / AMD / NVIDIA GPU；不支持时自动使用 CPU。",foreground="#666").pack(pady=3)
         ttk.Label(self.root,text="紧急停止：鼠标移到屏幕左上角或点击停止。",foreground="#955").pack(pady=10)
 
     def slider(self,p,label,var,lo,hi,step=1):
