@@ -8,11 +8,13 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -20,9 +22,10 @@ jobs:
           pip install pytest pyinstaller
       - name: Run tests
         run: pytest -q
-      - name: Build executable
-        run: pyinstaller --noconfirm --onefile --windowed --name WhiteTargetAssistant app.py
-      - uses: actions/upload-artifact@v4
+      - name: Build Windows executable
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name WhiteTargetAssistant --collect-all cv2 --collect-all mss --collect-all pyautogui app.py
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
         with:
           name: WhiteTargetAssistant-windows
           path: dist/WhiteTargetAssistant.exe
