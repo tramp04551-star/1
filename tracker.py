@@ -38,7 +38,7 @@ class WhiteTargetTracker:
         white &= cv2.inRange(hsv[:,:,1],0,95)
         white=cv2.morphologyEx(white,cv2.MORPH_CLOSE,np.ones((5,5),np.uint8))
         candidates=self._components(white,min_area,50000)
-        if not candidates and self.warmup>25:
+        if not candidates and self.initialized and self.warmup>25:
             candidates=self._components(fg,max(250,min_area//2),50000)
         px=py=None
         if self.initialized:
