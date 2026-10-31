@@ -35,7 +35,9 @@ class App:
         self.tracker=WhiteTargetTracker(); self.stop_event=threading.Event(); self.running=False
         self.threshold=tk.IntVar(value=215); self.area=tk.IntVar(value=700); self.smooth=tk.DoubleVar(value=.55)
         self.follow=tk.BooleanVar(value=True); self.auto=tk.BooleanVar(value=True)
-        self.status=tk.StringVar(value="状态：已停止"); self.state="monitor"; self.success_hits=0; self.dialog_hits=0
+        self.status=tk.StringVar(value="状态：已停止")
+        self.backend_status=tk.StringVar(value=f"图像掩膜：{self.tracker.backend_name}")
+        self.state="monitor"; self.success_hits=0; self.dialog_hits=0
         self.build(); root.protocol("WM_DELETE_WINDOW",self.close)
 
     def build(self):
@@ -52,11 +54,8 @@ class App:
         self.start_btn=ttk.Button(row,text="开始监控",command=self.start); self.start_btn.pack(side="left",expand=True,fill="x",padx=4)
         self.stop_btn=ttk.Button(row,text="停止",command=self.stop,state="disabled"); self.stop_btn.pack(side="left",expand=True,fill="x",padx=4)
         ttk.Label(self.root,textvariable=self.status,font=("Microsoft YaHei UI",10,"bold")).pack(pady=8)
-        try:
-            import torch
-            gpu=f"可用 CUDA GPU：{torch.cuda.get_device_name(0)}" if torch.cuda.is_available() else "GPU：未检测到 CUDA，使用 OpenCV CPU"
-        except Exception: gpu="GPU：未安装 CUDA 版 PyTorch，使用 OpenCV CPU"
-        ttk.Label(self.root,text=gpu,foreground="#666").pack()
+        ttk.Label(self.root,textvariable=self.backend_status,foreground="#245").pack()
+        ttk.Label(self.root,text="CUDA 加速白色掩膜；区域分析、背景模型和鼠标控制仍由 CPU 执行。",foreground="#666").pack(pady=3)
         ttk.Label(self.root,text="紧急停止：鼠标移到屏幕左上角或点击停止。",foreground="#955").pack(pady=10)
 
     def slider(self,p,label,var,lo,hi,step=1):
@@ -79,10 +78,15 @@ class App:
         try:
             with mss.mss() as cap:
                 screen=cap.monitors[1]
+                last_backend = None
                 while not self.stop_event.is_set():
                     frame=np.asarray(cap.grab(screen))[:,:,:3][:,:,::-1].copy()
                     if self.state=="monitor":
                         point=self.tracker.update(frame,self.threshold.get(),self.area.get())
+                        current_backend = self.tracker.backend_name
+                        if current_backend != last_backend:
+                            self.root.after(0,lambda value=current_backend:self.backend_status.set(f"图像掩膜：{value}"))
+                            last_backend = current_backend
                         if point is not None:
                             x,y=point
                             if self.follow.get():
