@@ -14,6 +14,7 @@ class WhiteTargetTracker:
         self.initialized = False
         self.missing = 0
         self.max_missing = max_missing
+        self.last_detected = False
 
     def detect(self, frame, threshold=220, min_area=80):
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -36,13 +37,13 @@ class WhiteTargetTracker:
         if not found:
             return None
         if self.initialized and self.missing <= self.max_missing:
-            pred = self.kalman.predict()
-            px, py = float(pred[0,0]), float(pred[1,0])
+            px, py = float(self.kalman.statePost[0,0]), float(self.kalman.statePost[1,0])
             return min(found, key=lambda item: (item[1][0]-px)**2 + (item[1][1]-py)**2)[1]
         return max(found, key=lambda item: item[0])[1]
 
     def update(self, frame, threshold=220, min_area=80):
         point = self.detect(frame, threshold, min_area)
+        self.last_detected = point is not None
         if point is None:
             if self.initialized:
                 pred = self.kalman.predict()
