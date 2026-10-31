@@ -3,7 +3,6 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-import cv2
 import mss
 import numpy as np
 import pyautogui
@@ -89,21 +88,23 @@ class App:
                     target = self.tracker.update(rgb, self.threshold.get(), self.area.get())
                     now = time.monotonic()
                     if target is not None:
-                        self.last_seen = now; self.sent = False
                         x, y = target
+                        if self.tracker.last_detected:
+                            self.last_seen = now
+                            self.sent = False
+                            self.set_status(f"状态：已识别目标 {x}, {y}")
+                        else:
+                            self.set_status("状态：目标短暂丢失，正在预测")
                         if self.follow.get():
                             px, py = pyautogui.position()
                             a = float(self.smooth.get())
                             pyautogui.moveTo(int(px+(x-px)*a), int(py+(y-py)*a), _pause=False)
-                        self.set_status(f"状态：目标位置 {x}, {y}")
                     else:
                         if self.auto.get() and not self.sent and now-self.last_seen >= float(self.delay.get()):
                             key = self.key.get().strip().lower()
                             if key:
                                 pyautogui.press(key); self.sent = True
                                 self.set_status("状态：已发送确认键，等待下一轮")
-                        elif now-self.last_seen < 0.7:
-                            self.set_status("状态：目标短暂丢失，正在预测")
                         else:
                             self.set_status("状态：未发现目标")
                     time.sleep(0.02)
