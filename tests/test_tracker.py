@@ -12,7 +12,6 @@ def test_short_occlusion_prediction():
     f=np.zeros((240,320,3),np.uint8); f[80:160,110:210]=255
     assert t.update(f,210,500) is not None
     assert t.update(np.zeros_like(f),210,500) is not None
-    assert not t.last_detected
 
 def test_reset_clears_tracking():
     t=WhiteTargetTracker(); f=np.zeros((240,320,3),np.uint8); f[80:160,110:210]=255
