@@ -430,17 +430,14 @@ class Assistant:
     def loop(self):
         try:
             with mss.mss() as capture:
-                screen = self._capture_region(capture)
                 previous_frame_time = time.perf_counter()
-                next_region_refresh = time.monotonic() + 2.0
                 while not self.stop_event.is_set():
                     now = time.perf_counter()
                     dt_frames = max(0.20, min(4.0, (now - previous_frame_time) * 30.0))
                     previous_frame_time = now
-                    # Refresh the selected window rectangle periodically.
-                    if time.monotonic() >= next_region_refresh:
-                        screen = self._capture_region(capture)
-                        next_region_refresh = time.monotonic() + 2.0
+                    # Resolve the client origin every frame; a moved game window
+                    # must never leave a two-second stale mouse-coordinate mapping.
+                    screen = self._capture_region(capture)
                     frame = np.asarray(capture.grab(screen))[:, :, :3][:, :, ::-1].copy()
                     # Tk variables are read on the UI thread only; snapshot values
                     # are refreshed by the UI before starting and via trace callbacks.
@@ -476,12 +473,16 @@ class Assistant:
                                         f"预测置信度过低 ({self.tracker.last_confidence:.2f}) · 暂停输入"
                                     )
                                 elif self._game_window_has_focus():
-                                    px, py = pyautogui.position()
-                                    factor = float(np.clip(smoothing, .15, 1.0))
-                                    target_x = int(screen["left"] + x)
-                                    target_y = int(screen["top"] + y)
-                                    pyautogui.moveTo(int(px + (target_x-px)*factor),
-                                                     int(py + (target_y-py)*factor), _pause=False)
+                                    latest_screen = self._capture_region(capture)
+                                    if latest_screen != screen:
+                                        self._ui(self.target_state.set, "窗口位置变化 · 重新捕获")
+                                    else:
+                                        px, py = pyautogui.position()
+                                        factor = float(np.clip(smoothing, .15, 1.0))
+                                        target_x = int(latest_screen["left"] + x)
+                                        target_y = int(latest_screen["top"] + y)
+                                        pyautogui.moveTo(int(px + (target_x-px)*factor),
+                                                         int(py + (target_y-py)*factor), _pause=False)
                                 else:
                                     self._ui(self.target_state.set, "游戏窗口未置前 · 暂停输入")
                         else:
@@ -542,12 +543,18 @@ class Assistant:
                             else:
                                 # The complete dialog and its confirm button have both
                                 # matched for three consecutive, spatially stable frames.
-                                pyautogui.click(screen["left"] + button[0],
-                                                screen["top"] + button[1])
-                                self.state = "after_confirm"
-                                self.after_confirm_clear_hits = 0
-                                self.last_button_point = None
-                                self._ui(self.status.set, "已点击确认：验证结果对话框关闭")
+                                latest_screen = self._capture_region(capture)
+                                if latest_screen != screen:
+                                    self.button_hits = 0
+                                    self.last_button_point = None
+                                    self._ui(self.status.set, "窗口位置变化：重新识别确认按钮")
+                                else:
+                                    pyautogui.click(latest_screen["left"] + button[0],
+                                                    latest_screen["top"] + button[1])
+                                    self.state = "after_confirm"
+                                    self.after_confirm_clear_hits = 0
+                                    self.last_button_point = None
+                                    self._ui(self.status.set, "已点击确认：验证结果对话框关闭")
                         elif time.monotonic() - self.dialog_started_at > 8.0:
                             self._ui(self.stop)
                             self._ui(self.status.set, "未能可靠识别确认按钮，已安全停止")
