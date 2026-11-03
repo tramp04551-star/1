@@ -6,7 +6,7 @@ call .venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install pyinstaller pytest
-python -m compileall -q app.py tracker.py gpu_backend.py result_dialog.py
+python -m compileall -q app.py tracker.py gpu_backend.py result_dialog.py tools
 if errorlevel 1 exit /b 1
 pytest -q
 if errorlevel 1 exit /b 1
