@@ -169,7 +169,7 @@ class Assistant:
                   wraplength=220).pack(anchor="w", pady=(0, 8))
         ttk.Label(status, text="目标状态").pack(anchor="w")
         ttk.Label(status, textvariable=self.target_state, foreground="#16835d").pack(anchor="w")
-        ttk.Label(status, text="GPU 后端").pack(anchor="w", pady=(8, 0))
+        ttk.Label(status, text="掩膜计算后端").pack(anchor="w", pady=(8, 0))
         ttk.Label(status, textvariable=self.backend, wraplength=220).pack(anchor="w")
         ttk.Label(status, text="完成轮数").pack(anchor="w", pady=(8, 0))
         ttk.Label(status, textvariable=self.rounds, font=("Segoe UI", 16, "bold")).pack(anchor="w")
@@ -179,7 +179,7 @@ class Assistant:
                   wraplength=220, justify="left").pack(anchor="w")
         footer = ttk.Frame(self.root, padding=(18, 8))
         footer.pack(fill="x")
-        ttk.Label(footer, text="OpenCL · NVIDIA / AMD / Intel · CPU fallback",
+        ttk.Label(footer, text="OpenCL 掩膜加速 · CPU 回退",
                   style="Sub.TLabel").pack(side="left")
         ttk.Label(footer, text="本地屏幕处理", style="Sub.TLabel").pack(side="right")
 
