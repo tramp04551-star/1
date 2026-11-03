@@ -1,6 +1,9 @@
 import ctypes
 
-from app import (\n    get_window_client_region, is_window_foreground, map_game_roi,\n    smoothed_mouse_position,\n)
+from app import (
+    get_window_client_region, is_window_foreground, map_game_roi,
+    smoothed_mouse_position,
+)
 
 
 class FakeUser32:
