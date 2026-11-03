@@ -26,6 +26,10 @@ class WhiteTargetTracker:
         self.last_safe_offset = (0.0, 0.0)
         self.last_safe_point = None
         self.last_confidence = 0.0
+        self.flow_confidence = 0.0
+        self.prev_gray = None
+        self.last_mask = None
+        self.last_center = None
 
     def _init_filter(self):
         self.kf = cv2.KalmanFilter(4, 2)
@@ -115,6 +119,93 @@ class WhiteTargetTracker:
         )
         return combined
 
+    def _estimate_flow(self, gray):
+        """Estimate target translation from boundary features with FB validation."""
+        if self.prev_gray is None or self.last_mask is None:
+            return None
+        if self.prev_gray.shape != gray.shape or self.last_mask.shape != gray.shape:
+            return None
+
+        kernel = np.ones((3, 3), np.uint8)
+        boundary = cv2.morphologyEx(self.last_mask, cv2.MORPH_GRADIENT, kernel)
+        feature_mask = cv2.dilate(boundary, np.ones((7, 7), np.uint8))
+        points = cv2.goodFeaturesToTrack(
+            self.prev_gray,
+            maxCorners=100,
+            qualityLevel=0.008,
+            minDistance=3,
+            mask=feature_mask,
+            blockSize=5,
+            useHarrisDetector=False,
+        )
+        if points is None or len(points) < 4:
+            return None
+
+        criteria = (
+            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+            30,
+            0.01,
+        )
+        try:
+            next_points, status, error = cv2.calcOpticalFlowPyrLK(
+                self.prev_gray, gray, points, None,
+                winSize=(21, 21), maxLevel=3, criteria=criteria,
+            )
+            if next_points is None or status is None:
+                return None
+            back_points, back_status, _ = cv2.calcOpticalFlowPyrLK(
+                gray, self.prev_gray, next_points, None,
+                winSize=(21, 21), maxLevel=3, criteria=criteria,
+            )
+            if back_points is None or back_status is None:
+                return None
+        except cv2.error:
+            return None
+
+        p0 = points.reshape(-1, 2)
+        p1 = next_points.reshape(-1, 2)
+        p0_back = back_points.reshape(-1, 2)
+        fb_error = np.linalg.norm(p0 - p0_back, axis=1)
+        valid = (
+            (status.reshape(-1) == 1)
+            & (back_status.reshape(-1) == 1)
+            & (fb_error < 1.5)
+        )
+        if error is not None:
+            valid &= error.reshape(-1) < 45.0
+        displacement = (p1 - p0)[valid]
+        if len(displacement) < 4:
+            return None
+
+        median = np.median(displacement, axis=0)
+        residual = np.linalg.norm(displacement - median, axis=1)
+        inliers = residual < 3.5
+        if int(inliers.sum()) < 4:
+            return None
+        inlier_ratio = float(inliers.mean())
+        if inlier_ratio < 0.35:
+            return None
+        dx, dy = np.median(displacement[inliers], axis=0)
+        if not np.isfinite(dx + dy) or np.hypot(dx, dy) > 80.0:
+            return None
+
+        confidence = inlier_ratio * min(1.0, int(inliers.sum()) / 12.0)
+        confidence *= float(np.exp(-np.median(residual[inliers]) / 3.5))
+        return float(dx), float(dy), float(np.clip(confidence, 0.0, 1.0))
+
+    @staticmethod
+    def _full_component_mask(shape, component):
+        x, y, width, height = component["box"]
+        mask = np.zeros(shape, np.uint8)
+        local = component["mask"]
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(shape[1], x + width), min(shape[0], y + height)
+        if x1 > x0 and y1 > y0:
+            mask[y0:y1, x0:x1] = local[
+                y0 - y:y1 - y, x0 - x:x1 - x
+            ]
+        return mask
+
     def update(self, frame, threshold=215, min_area=500, dt=1.0):
         # dt is expressed in nominal 30-fps frames. The capture loop can vary
         # with CPU/GPU load, so a fixed one-frame Kalman step mispredicts motion.
@@ -134,6 +225,7 @@ class WhiteTargetTracker:
         )
         white = self._build_masks(frame, threshold)
         h, w = white.shape[:2]
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         if not self.initialized:
             # The reference recording shows a countdown at the top-center before
             # the actual white game piece appears near the middle of the playfield.
@@ -202,20 +294,64 @@ class WhiteTargetTracker:
             self.last_safe_point = (safe_x, safe_y)
             self.last_box = chosen["box"]
             self.last_confidence = min(1.0, chosen["radius"] / 8.0)
+            self.flow_confidence = 0.0
+            self.last_center = (float(x), float(y))
+            self.last_mask = self._full_component_mask((h, w), chosen)
+            self.prev_gray = gray
             self.missing = 0
             self.last_detected = True
             return safe_x, safe_y
 
         self.last_detected = False
+        flow = self._estimate_flow(gray) if self.initialized else None
+        if self.initialized and predicted is not None and flow is not None:
+            flow_dx, flow_dy, flow_score = flow
+            flow_x = float(self.last_center[0] + flow_dx)
+            flow_y = float(self.last_center[1] + flow_dy)
+            self.kf.measurementNoiseCov = (
+                np.eye(2, dtype=np.float32) * (4.0 + 18.0 * (1.0 - flow_score))
+            )
+            self.kf.correct(np.array([[flow_x], [flow_y]], np.float32))
+            corrected = self.kf.statePost
+            predicted = (float(corrected[0, 0]), float(corrected[1, 0]))
+            self.last_center = (flow_x, flow_y)
+            self.flow_confidence = flow_score
+
+            transform = np.float32([[1, 0, flow_dx], [0, 1, flow_dy]])
+            self.last_mask = cv2.warpAffine(
+                self.last_mask, transform, (w, h),
+                flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            safe = self._interior_point(self.last_mask)
+            if safe is not None:
+                self.last_safe_point = safe
+                self.last_safe_offset = (safe[0] - flow_x, safe[1] - flow_y)
+            if self.last_box is not None:
+                bx, by, bw, bh = self.last_box
+                self.last_box = (
+                    int(round(bx + flow_dx)), int(round(by + flow_dy)), bw, bh
+                )
+            self.last_confidence = min(self.last_confidence, flow_score)
+        else:
+            # Do not reuse stale optical-flow features after an unverified frame.
+            self.last_mask = None
+            self.flow_confidence = 0.0
+
+        self.prev_gray = gray
         if self.initialized and predicted is not None:
             self.missing += 1
             if self.missing <= self.max_missing:
                 dx, dy = self.last_safe_offset
                 px = int(np.clip(predicted[0] + dx, 0, w - 1))
                 py = int(np.clip(predicted[1] + dy, 0, h - 1))
+                self.last_safe_point = (px, py)
                 return px, py
             self.initialized = False
             self.last_box = None
             self.last_safe_point = None
+            self.last_mask = None
+            self.last_center = None
+            self.prev_gray = None
             self.last_confidence = 0.0
         return None
