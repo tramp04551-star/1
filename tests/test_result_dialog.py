@@ -13,9 +13,14 @@ def make_reference_dialog_frame():
     dialog = cv2.imread(
         str(ASSETS / "result_dialog_template.png"), cv2.IMREAD_GRAYSCALE
     )
-    assert dialog is not None
+    button = cv2.imread(
+        str(ASSETS / "confirm_button_template.png"), cv2.IMREAD_GRAYSCALE
+    )
+    assert dialog is not None and button is not None
     gray = np.full((563, 759), 64, dtype=np.uint8)
     gray[220:220 + dialog.shape[0], 242:242 + dialog.shape[1]] = dialog
+    # The measured button extends one row below the dialog crop boundary.
+    gray[338:338 + button.shape[0], 475:475 + button.shape[1]] = button
     return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
 
 
