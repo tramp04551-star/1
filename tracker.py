@@ -340,6 +340,14 @@ class WhiteTargetTracker:
             # Do not reuse stale optical-flow features after an unverified frame.
             self.last_mask = None
             self.flow_confidence = 0.0
+            covariance = self.kf.errorCovPre
+            position_sigma = float(np.sqrt(max(
+                0.0, np.trace(covariance[:2, :2]) / 2.0
+            )))
+            uncertainty_confidence = float(np.exp(-position_sigma / 400.0))
+            self.last_confidence = min(
+                self.last_confidence, uncertainty_confidence
+            )
 
         self.prev_gray = gray
         if self.initialized and predicted is not None:
