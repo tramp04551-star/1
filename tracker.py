@@ -288,6 +288,9 @@ class WhiteTargetTracker:
                 self.kf.statePost = np.array([[x], [y], [0], [0]], np.float32)
                 self.initialized = True
             else:
+                # Restore detector measurement confidence after any lower-confidence
+                # optical-flow correction in the previous transparent frame.
+                self.kf.measurementNoiseCov = np.eye(2, dtype=np.float32) * 2.0
                 self.kf.correct(np.array([[x], [y]], np.float32))
             safe_x, safe_y = chosen["safe"]
             self.last_safe_offset = (safe_x - x, safe_y - y)
