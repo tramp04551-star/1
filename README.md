@@ -37,3 +37,13 @@ Windows / Python 3.11：
 GitHub Actions 的 **Windows V2 desktop assistant build** 会从仓库当前源码运行编译、回归测试和 Windows 打包。构建产物名为 `MapleStory-MiniGameAssistant-V2-Windows`。
 
 自动化测试通过不等于目标私服实机通过；实机验收需记录 Windows 版本、游戏窗口尺寸、显卡/驱动、实际后端、跟踪误差和结束确认结果。
+
+## 离线回放评估
+
+将参考截图目录放在本机，运行：
+
+```powershell
+python tools/replay_evaluate.py --frames-dir "D:\\path\\to\\小游戏记录" --output-csv tracker_replay.csv
+```
+
+脚本会提取绿色准星轨迹作为参考软件输出伪标签，并导出逐帧模式、预测坐标、置信度和误差分布。**伪标签误差不是隐藏目标真实误差**；必须结合可见目标内部点检查和实机验收解释。
