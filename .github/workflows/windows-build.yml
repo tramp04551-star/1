@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-v2-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
@@ -52,6 +56,32 @@ jobs:
           --collect-all cv2 --collect-all pyopencl --collect-all mss --collect-all pyautogui
           --add-data "assets;assets"
           app.py
+
+      - name: Write build provenance and dependency manifest
+        shell: pwsh
+        run: |
+          $sourceFiles = @(
+            "app.py",
+            "tracker.py",
+            "gpu_backend.py",
+            "result_dialog.py",
+            "requirements.txt",
+            "assets/result_dialog_template.png",
+            "assets/confirm_button_template.png"
+          )
+          $hashes = @{}
+          foreach ($file in $sourceFiles) {
+            $hashes[$file] = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
+          }
+          python -m pip freeze | Set-Content -Path "dist/MapleStoryMiniGameAssistant/dependency-freeze.txt" -Encoding utf8
+          $manifest = [ordered]@{
+            commit_sha = "${{ github.sha }}"
+            python = (python --version 2>&1)
+            built_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+            test_status = "passed"
+            source_sha256 = $hashes
+          }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path "dist/MapleStoryMiniGameAssistant/build-info.json" -Encoding utf8
 
       - name: Upload Windows application
         uses: actions/upload-artifact@v4

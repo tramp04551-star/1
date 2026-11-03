@@ -34,7 +34,7 @@ Windows / Python 3.11：
 
 ## CI 构建
 
-GitHub Actions 的 **Windows V2 desktop assistant build** 会从仓库当前源码运行编译、回归测试和 Windows 打包。构建产物名为 `MapleStory-MiniGameAssistant-V2-Windows`。
+GitHub Actions 的 **Windows V2 desktop assistant build** 会从仓库当前源码运行编译、回归测试和 Windows 打包。构建产物名为 `MapleStory-MiniGameAssistant-V2-Windows`，其中包含 `build-info.json`（commit、源码 SHA-256、测试状态）和 `dependency-freeze.txt`。同一分支有新提交时，旧构建会自动取消，避免并行重复打包。
 
 自动化测试通过不等于目标私服实机通过；实机验收需记录 Windows 版本、游戏窗口尺寸、显卡/驱动、实际后端、跟踪误差和结束确认结果。
 
