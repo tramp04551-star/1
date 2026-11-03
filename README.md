@@ -1,18 +1,30 @@
-# 冒险岛小游戏助手（跨品牌 GPU 版）
+# 冒险岛小游戏助手
 
-不再捆绑 NVIDIA CUDA 或 PyTorch。使用 OpenCL 自动枚举本机 GPU，支持安装了 OpenCL 驱动的 NVIDIA GeForce/RTX、AMD Radeon、Intel UHD/Iris Xe/Arc。程序启动时自动选择可用 GPU；若驱动缺失、设备不支持或 OpenCL 初始化失败，自动回退 OpenCV CPU，并显示当前实际后端。
+## 已实现功能
 
-GPU 执行 RGB 亮度、低饱和度判断和白色像素掩膜；OpenCV CPU 执行背景模型、连通区域分析、卡尔曼跟踪和鼠标控制。单帧屏幕图像的 GPU 数据传输也有成本，不保证所有显卡上都比 CPU 快。
+- 从游戏画面提取高亮、低饱和度的白色目标轮廓。
+- 对连通区域进行面积、形状和上一帧位置关联。
+- 鼠标目标点使用轮廓内部距离边缘最远的点，避免凹形图形的质心落到外部。
+- 图形淡出/短时遮挡时，使用 Kalman 速度预测并保留上次安全内点偏移。
+- 检测游戏画面中央的金黄色成功字样；确认按钮需要连续多帧检测后才点击。
+- 确认后等待成功/按钮提示消失，再自动恢复下一轮监控。
+- OpenCL 自动枚举 NVIDIA、AMD、Intel GPU；初始化或运行失败时自动回退 CPU。
+- GUI 提供识别阈值、最小目标面积、鼠标跟随平滑度、自动确认开关、GPU 后端和完成轮数。
 
 ## Windows 使用
 
-从 GitHub Actions 下载 **WhiteTargetAssistant-Windows-OpenCL**，解压整个目录，运行 `WhiteTargetAssistant.exe`。不需要安装 CUDA 或 PyTorch。需要 GPU 模式时，安装显卡厂商提供的最新驱动及 OpenCL ICD。
+双击 `run_windows.bat`，首次运行会创建 Python 3.11 环境并安装依赖。
 
-源码运行：
+打包独立 EXE：双击 `build_exe.bat`。构建完成后运行：
 
-    py -3.11 -m venv .venv
-    .\.venv\Scripts\activate
-    pip install -r requirements.txt
-    python app.py
+    dist\冒险岛小游戏助手\冒险岛小游戏助手.exe
 
-透明目标跟踪和成功/确认提示识别仍需在实际游戏分辨率下验证。
+请保留整个 dist 文件夹。GPU 模式需要显卡驱动提供 OpenCL ICD；不支持时会显示 CPU 回退状态。
+
+## 停止方式
+
+点击“停止”，或将鼠标快速移至屏幕左上角触发紧急停止。
+
+## 实机限制
+
+完全不可见的目标只能根据最近观测到的速度预测；目标若在不可见期间突然变向，屏幕图像无法保证鼠标仍位于真实图形内。成功提示和确认按钮的颜色、位置规则仍需要在实际游戏分辨率下进行实机验收。
