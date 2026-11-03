@@ -124,7 +124,28 @@ class WhiteTargetTracker:
         )
         white = self._build_masks(frame, threshold)
         h, w = white.shape[:2]
-        candidates = self._components(white, max(120, int(min_area)), max(50000, h*w//12))
+        if not self.initialized:
+            # The reference recording shows a countdown at the top-center before
+            # the actual white game piece appears near the middle of the playfield.
+            # Restrict first acquisition so a bright countdown digit cannot steal
+            # the target lock. Once acquired, tracking uses the full game window.
+            x0, x1 = int(w * 0.10), int(w * 0.90)
+            y0, y1 = int(h * 0.30), int(h * 0.88)
+            acquire_mask = white[y0:y1, x0:x1]
+            candidates = self._components(
+                acquire_mask, max(1200, int(min_area)), max(50000, h*w//12)
+            )
+            for candidate in candidates:
+                cx, cy = candidate["center"]
+                sx, sy = candidate["safe"]
+                bx, by, bw, bh = candidate["box"]
+                candidate["center"] = (cx + x0, cy + y0)
+                candidate["safe"] = (sx + x0, sy + y0)
+                candidate["box"] = (bx + x0, by + y0, bw, bh)
+        else:
+            candidates = self._components(
+                white, max(120, int(min_area)), max(50000, h*w//12)
+            )
 
         predicted = None
         if self.initialized:
