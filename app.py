@@ -68,12 +68,16 @@ class Assistant:
         self.backend = tk.StringVar(value=self.tracker.backend_name)
         self.target_state = tk.StringVar(value="未锁定")
         self.rounds = tk.IntVar(value=0)
+        self.round_count = 0
         self.events = deque(maxlen=100)
         self.state = "monitor"
         self.success_hits = 0
         self.button_hits = 0
         self.last_backend = None
         self.build()
+        self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
+                          self.follow.get(), self.auto_confirm.get())
+        self.root.after(100, self._refresh_snapshot)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
     def build(self):
@@ -156,6 +160,8 @@ class Assistant:
     def start(self):
         if self.running:
             return
+        self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
+                          self.follow.get(), self.auto_confirm.get())
         self.running = True
         self.stop_event.clear()
         self.tracker.reset()
@@ -220,7 +226,8 @@ class Assistant:
                             # Click only after repeated, spatially consistent detection.
                             pyautogui.click(button[0], button[1])
                             self.state = "after_confirm"
-                            self._ui(self.rounds.set, self.rounds.get() + 1)
+                            self.round_count += 1
+                            self._ui(self.rounds.set, self.round_count)
                             self._ui(self.status.set, "已确认：等待游戏界面恢复")
                     elif self.state == "after_confirm":
                         if confirm_button(frame) is None and not success_banner(frame):
@@ -258,8 +265,7 @@ class Assistant:
     def _refresh_snapshot(self):
         self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
                           self.follow.get(), self.auto_confirm.get())
-        if self.running:
-            self.root.after(100, self._refresh_snapshot)
+        self.root.after(100, self._refresh_snapshot)
 
     def close(self):
         self.stop()
@@ -269,7 +275,4 @@ class Assistant:
 if __name__ == "__main__":
     root = tk.Tk()
     app = Assistant(root)
-    app._snapshot = (app.threshold.get(), app.area.get(), app.smooth.get(),
-                     app.follow.get(), app.auto_confirm.get())
-    app.root.after(100, app._refresh_snapshot)
     root.mainloop()
