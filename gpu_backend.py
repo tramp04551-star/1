@@ -19,6 +19,8 @@ class WhiteMaskProcessor:
     def __init__(self, prefer_gpu=True):
         self.cl=None; self.context=None; self.queue=None; self.program=None
         self.device_name=None; self.gpu_active=False; self.failure_reason=None
+        self._shape=None; self._input_buffer=None; self._output_buffer=None
+        self._result_buffer=None
         if not prefer_gpu: return
         try:
             import pyopencl as cl
@@ -50,13 +52,34 @@ class WhiteMaskProcessor:
         return self._cpu_mask(frame,threshold)
 
     def _opencl_mask(self,frame,threshold):
-        cl=self.cl; rgb=np.ascontiguousarray(frame,dtype=np.uint8); h,w=rgb.shape[:2]
-        source=cl.Buffer(self.context,cl.mem_flags.READ_ONLY|cl.mem_flags.COPY_HOST_PTR,hostbuf=rgb)
-        output=cl.Buffer(self.context,cl.mem_flags.WRITE_ONLY,size=h*w)
-        self.program.white_mask(self.queue,(h*w,),None,source,output,np.int32(h*w),np.int32(threshold))
-        result=np.empty((h,w),dtype=np.uint8)
-        cl.enqueue_copy(self.queue,result,output).wait()
-        return result
+        cl=self.cl
+        rgb=np.ascontiguousarray(frame,dtype=np.uint8)
+        h,w=rgb.shape[:2]
+        shape=(h,w)
+        if self._shape != shape:
+            # Reuse device buffers and host output for every frame at a stable
+            # capture size. Allocating OpenCL buffers per frame adds avoidable
+            # latency and allocator pressure.
+            self._input_buffer=cl.Buffer(
+                self.context,cl.mem_flags.READ_ONLY,size=rgb.nbytes
+            )
+            self._output_buffer=cl.Buffer(
+                self.context,cl.mem_flags.WRITE_ONLY,size=h*w
+            )
+            self._result_buffer=np.empty((h,w),dtype=np.uint8)
+            self._shape=shape
+
+        cl.enqueue_copy(
+            self.queue,self._input_buffer,rgb,is_blocking=False
+        )
+        self.program.white_mask(
+            self.queue,(h*w,),None,self._input_buffer,self._output_buffer,
+            np.int32(h*w),np.int32(threshold)
+        )
+        cl.enqueue_copy(
+            self.queue,self._result_buffer,self._output_buffer
+        ).wait()
+        return self._result_buffer
 
     @staticmethod
     def _cpu_mask(frame,threshold):
