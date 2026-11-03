@@ -136,11 +136,11 @@ def find_result_dialog(
             or abs(matched_button_y - button_y) > margin):
         return None
 
-    button_cx = matched_button_x + (bw - 1) / 2.0
-    button_cy = matched_button_y + (bh - 1) / 2.0
+    button_cx = matched_button_x + bw // 2
+    button_cy = matched_button_y + bh // 2
     return ResultDialogMatch(
         dialog_rect=(dialog_x, dialog_y, tw, th),
-        confirm_point=(int(round(button_cx)), int(round(button_cy))),
+        confirm_point=(int(button_cx), int(button_cy)),
         dialog_score=float(dialog_score),
         button_score=float(button_score),
     )
