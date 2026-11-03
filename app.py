@@ -13,6 +13,7 @@ import numpy as np
 import pyautogui
 
 from tracker import WhiteTargetTracker
+from result_dialog import find_result_dialog
 
 def enumerate_game_windows():
     """Return visible Windows top-level windows with usable client rectangles."""
@@ -62,25 +63,9 @@ def success_banner(frame):
 
 
 def confirm_button(frame):
-    hsv = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)
-    mask = cv2.inRange(hsv, np.array([4, 90, 115]), np.array([32, 255, 255]))
-    h, w = mask.shape
-    # Dialog buttons are expected in the lower central region; do not click
-    # arbitrary orange scenery or UI elsewhere on the desktop.
-    x0, y0 = int(w * .30), int(h * .48)
-    roi = mask[y0:, x0:int(w * .78)]
-    roi = cv2.morphologyEx(roi, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-    contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    candidates = []
-    for contour in contours:
-        x, y, cw, ch = cv2.boundingRect(contour)
-        area = cv2.contourArea(contour)
-        if 35 <= cw <= 300 and 14 <= ch <= 100 and area >= 160:
-            candidates.append((area, x0 + x + cw // 2, y0 + y + ch // 2))
-    if not candidates:
-        return None
-    _, x, y = max(candidates)
-    return int(x), int(y)
+    """Return the center of the confirmed result-dialog button, never a color blob."""
+    match = find_result_dialog(frame)
+    return match.confirm_point if match is not None else None
 
 
 class Assistant:
@@ -107,6 +92,9 @@ class Assistant:
         self.state = "monitor"
         self.success_hits = 0
         self.button_hits = 0
+        self.last_button_point = None
+        self.dialog_started_at = 0.0
+        self.after_confirm_clear_hits = 0
         self.last_backend = None
         self.window_choices = []
         self.selected_window = tk.StringVar(value="自动：主屏幕")
@@ -245,6 +233,9 @@ class Assistant:
         self.tracker.reset()
         self.state = "monitor"
         self.success_hits = self.button_hits = 0
+        self.last_button_point = None
+        self.dialog_started_at = 0.0
+        self.after_confirm_clear_hits = 0
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.status.set("监控中：等待白色目标出现")
@@ -309,24 +300,53 @@ class Assistant:
                         if auto_confirm and self.success_hits >= 3:
                             self.state = "dialog"
                             self.button_hits = 0
-                            self._ui(self.status.set, "检测到成功标志：查找确认按钮")
+                            self.last_button_point = None
+                            self.dialog_started_at = time.monotonic()
+                            self._ui(self.status.set, "检测到成功标志：等待结果对话框")
                     elif self.state == "dialog":
                         button = confirm_button(frame)
-                        self.button_hits = self.button_hits + 1 if button else 0
+                        if button is None:
+                            self.button_hits = 0
+                            self.last_button_point = None
+                        else:
+                            if (self.last_button_point is not None
+                                    and np.hypot(button[0] - self.last_button_point[0],
+                                                 button[1] - self.last_button_point[1]) <= 4):
+                                self.button_hits += 1
+                            else:
+                                self.button_hits = 1
+                            self.last_button_point = button
+
                         if self.button_hits >= 3 and button:
-                            # Click only after repeated, spatially consistent detection.
+                            # The complete dialog and its confirm button have both
+                            # matched for three consecutive, spatially stable frames.
                             pyautogui.click(screen["left"] + button[0],
                                             screen["top"] + button[1])
                             self.state = "after_confirm"
+                            self.after_confirm_clear_hits = 0
+                            self.last_button_point = None
+                            self._ui(self.status.set, "已点击确认：验证结果对话框关闭")
+                        elif time.monotonic() - self.dialog_started_at > 8.0:
+                            self._ui(self.stop)
+                            self._ui(self.status.set, "未能可靠识别确认按钮，已安全停止")
+                    elif self.state == "after_confirm":
+                        dialog_still_visible = confirm_button(frame) is not None
+                        banner_still_visible = success_banner(frame)
+                        if not dialog_still_visible and not banner_still_visible:
+                            self.after_confirm_clear_hits += 1
+                        else:
+                            self.after_confirm_clear_hits = 0
+
+                        # Count a round only after the dialog is absent in several
+                        # consecutive frames. A click alone is not success.
+                        if self.after_confirm_clear_hits >= 3:
                             self.round_count += 1
                             self._ui(self.rounds.set, self.round_count)
-                            self._ui(self.status.set, "已确认：等待游戏界面恢复")
-                    elif self.state == "after_confirm":
-                        if confirm_button(frame) is None and not success_banner(frame):
                             self.tracker.reset()
                             self.state = "monitor"
                             self.success_hits = self.button_hits = 0
-                            self._ui(self.status.set, "已恢复监控：等待下一轮")
+                            self.last_button_point = None
+                            self._ui(self.status.set, "已验证对话框关闭：等待下一轮")
                     time.sleep(.025)
         except pyautogui.FailSafeException:
             self._ui(self.stop)
