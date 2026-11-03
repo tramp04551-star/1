@@ -39,7 +39,7 @@ jobs:
           if (Test-Path "inminigame_assistant.py") { Write-Host "Legacy file detected; it is not used by this build." }
 
       - name: Compile active application sources
-        run: python -m compileall -q app.py tracker.py gpu_backend.py result_dialog.py
+        run: python -m compileall -q app.py tracker.py gpu_backend.py result_dialog.py tools
 
       - name: Run tracker and reference-dialog regression tests
         run: pytest -q
