@@ -4,6 +4,8 @@ import time
 import tkinter as tk
 from tkinter import ttk
 from collections import deque
+import ctypes
+from ctypes import wintypes
 
 import cv2
 import mss
@@ -11,6 +13,37 @@ import numpy as np
 import pyautogui
 
 from tracker import WhiteTargetTracker
+
+def enumerate_game_windows():
+    """Return visible Windows top-level windows with usable client rectangles."""
+    if __import__("sys").platform != "win32":
+        return []
+    user32 = ctypes.windll.user32
+    found = []
+    EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def callback(hwnd, _):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        title = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, title, length + 1)
+        text = title.value.strip()
+        if not text or "冒险岛小游戏助手" in text:
+            return True
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return True
+        width, height = rect.right - rect.left, rect.bottom - rect.top
+        if width >= 320 and height >= 240:
+            found.append((text, int(rect.left), int(rect.top), int(width), int(height)))
+        return True
+
+    user32.EnumWindows(EnumWindowsProc(callback), 0)
+    found.sort(key=lambda item: (("maple" not in item[0].lower()), -item[3]*item[4]))
+    return found
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
@@ -74,6 +107,8 @@ class Assistant:
         self.success_hits = 0
         self.button_hits = 0
         self.last_backend = None
+        self.window_choices = []
+        self.selected_window = tk.StringVar(value="自动：主屏幕")
         self.build()
         self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
                           self.follow.get(), self.auto_confirm.get())
@@ -112,6 +147,18 @@ class Assistant:
         ttk.Checkbutton(mouse, text="自动将鼠标保持在目标图形内部",
                         variable=self.follow).pack(anchor="w")
         self._slider(mouse, "跟随平滑度", self.smooth, .15, 1.0, .05)
+        capture = ttk.LabelFrame(left, text="游戏窗口", padding=12)
+        capture.pack(fill="x", pady=(0, 10))
+        capture_row = ttk.Frame(capture)
+        capture_row.pack(fill="x")
+        self.window_combo = ttk.Combobox(
+            capture_row, textvariable=self.selected_window,
+            state="readonly", width=38
+        )
+        self.window_combo.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ttk.Button(capture_row, text="刷新窗口", command=self.refresh_windows).pack(side="left")
+        self.refresh_windows()
+
         flow = ttk.LabelFrame(left, text="自动流程", padding=12)
         flow.pack(fill="x", pady=(0, 10))
         ttk.Checkbutton(flow, text="完成后自动查找并点击确认，再等待下一轮",
@@ -154,6 +201,36 @@ class Assistant:
                          showvalue=True, length=300, highlightthickness=0)
         scale.pack(side="left", fill="x", expand=True)
 
+    def refresh_windows(self):
+        self.window_choices = enumerate_game_windows()
+        labels = ["自动：主屏幕"] + [
+            f"{item[0]}  ({item[3]}×{item[4]})" for item in self.window_choices
+        ]
+        self.window_combo["values"] = labels
+        if self.selected_window.get() not in labels:
+            # Prefer a title containing MapleStory when present; otherwise keep
+            # the primary-screen fallback and let the user choose the game window.
+            maple = next((i for i, item in enumerate(self.window_choices)
+                          if "maple" in item[0].lower() or "冒险岛" in item[0]), None)
+            self.selected_window.set(labels[maple + 1] if maple is not None else labels[0])
+
+    def _capture_region(self, capture):
+        selected = self.selected_window.get()
+        if selected.startswith("自动：") or not self.window_choices:
+            mon = capture.monitors[1]
+            return {"left": mon["left"], "top": mon["top"],
+                    "width": mon["width"], "height": mon["height"]}
+        for label, item in zip(
+            [f"{v[0]}  ({v[3]}×{v[4]})" for v in self.window_choices],
+            self.window_choices
+        ):
+            if selected == label:
+                _, left, top, width, height = item
+                return {"left": left, "top": top, "width": width, "height": height}
+        mon = capture.monitors[1]
+        return {"left": mon["left"], "top": mon["top"],
+                "width": mon["width"], "height": mon["height"]}
+
     def _ui(self, callback, *args):
         self.root.after(0, lambda: callback(*args))
 
@@ -183,8 +260,12 @@ class Assistant:
     def loop(self):
         try:
             with mss.mss() as capture:
-                screen = capture.monitors[1]
+                screen = self._capture_region(capture)
                 while not self.stop_event.is_set():
+                    # Refresh the selected window rectangle occasionally so a
+                    # moved/resized game window does not leave stale coordinates.
+                    if int(time.monotonic() * 2) % 10 == 0:
+                        screen = self._capture_region(capture)
                     frame = np.asarray(capture.grab(screen))[:, :, :3][:, :, ::-1].copy()
                     # Tk variables are read on the UI thread only; snapshot values
                     # are refreshed by the UI before starting and via trace callbacks.
@@ -207,8 +288,10 @@ class Assistant:
                             if follow:
                                 px, py = pyautogui.position()
                                 factor = float(np.clip(smoothing, .15, 1.0))
-                                pyautogui.moveTo(int(px + (x-px)*factor),
-                                                 int(py + (y-py)*factor), _pause=False)
+                                target_x = int(screen["left"] + x)
+                                target_y = int(screen["top"] + y)
+                                pyautogui.moveTo(int(px + (target_x-px)*factor),
+                                                 int(py + (target_y-py)*factor), _pause=False)
                         else:
                             self._ui(self.target_state.set, "等待目标 / 下一轮")
                         if auto_confirm and success_banner(frame):
@@ -224,7 +307,8 @@ class Assistant:
                         self.button_hits = self.button_hits + 1 if button else 0
                         if self.button_hits >= 3 and button:
                             # Click only after repeated, spatially consistent detection.
-                            pyautogui.click(button[0], button[1])
+                            pyautogui.click(screen["left"] + button[0],
+                                            screen["top"] + button[1])
                             self.state = "after_confirm"
                             self.round_count += 1
                             self._ui(self.rounds.set, self.round_count)
