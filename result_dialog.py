@@ -48,7 +48,7 @@ def _resize_template(template: np.ndarray, scale: float) -> np.ndarray:
         return template
     width = max(8, int(round(template.shape[1] * scale)))
     height = max(8, int(round(template.shape[0] * scale)))
-    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
     return cv2.resize(template, (width, height), interpolation=interpolation)
 
 
@@ -110,22 +110,34 @@ def find_result_dialog(
     button_x = dialog_x + int(round(DIALOG_BUTTON_OFFSET[0] * scale))
     button_y = dialog_y + int(round(DIALOG_BUTTON_OFFSET[1] * scale))
     bh, bw = button_template.shape[:2]
-    button_patch = gray[
-        button_y:button_y + bh,
-        button_x:button_x + bw,
+    # Resizing the whole client image can shift a scaled sub-template by a
+    # pixel because of independent rounding. Search only a tight neighbourhood
+    # around the measured button offset, then use the matched button rectangle.
+    margin = max(3, int(round(5 * scale)))
+    search_x = max(0, button_x - margin)
+    search_y = max(0, button_y - margin)
+    button_search = gray[
+        search_y:button_y + bh + margin,
+        search_x:button_x + bw + margin,
     ]
-    if button_patch.shape != button_template.shape:
+    if (button_search.shape[0] < bh or button_search.shape[1] < bw):
         return None
 
     button_scores = cv2.matchTemplate(
-        button_patch, button_template, cv2.TM_CCOEFF_NORMED
+        button_search, button_template, cv2.TM_CCOEFF_NORMED
     )
     _, button_score, _, button_local = cv2.minMaxLoc(button_scores)
-    if button_score < min_button_score or button_local != (0, 0):
+    if button_score < min_button_score:
         return None
 
-    button_cx = button_x + bw / 2.0
-    button_cy = button_y + bh / 2.0
+    matched_button_x = search_x + int(button_local[0])
+    matched_button_y = search_y + int(button_local[1])
+    if (abs(matched_button_x - button_x) > margin
+            or abs(matched_button_y - button_y) > margin):
+        return None
+
+    button_cx = matched_button_x + (bw - 1) / 2.0
+    button_cy = matched_button_y + (bh - 1) / 2.0
     return ResultDialogMatch(
         dialog_rect=(dialog_x, dialog_y, tw, th),
         confirm_point=(int(round(button_cx)), int(round(button_cy))),
