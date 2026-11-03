@@ -8,6 +8,29 @@ import ctypes
 import sys
 from ctypes import wintypes
 
+
+def enable_dpi_awareness():
+    """Keep Win32 window coordinates and MSS physical pixels in one coordinate space."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+enable_dpi_awareness()
+
 import cv2
 import mss
 import numpy as np
@@ -39,29 +62,6 @@ def _configure_user32(user32):
             # function metadata; real WinDLL functions always accept the types.
             pass
     return user32
-
-
-def enable_dpi_awareness():
-    """Keep Win32 window coordinates and MSS physical pixels in one coordinate space."""
-    if sys.platform != "win32":
-        return
-    try:
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
-        return
-    except Exception:
-        pass
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_AWARE
-        return
-    except Exception:
-        pass
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
-
-
-enable_dpi_awareness()
 
 
 def _handle_value(handle):
