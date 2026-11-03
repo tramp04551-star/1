@@ -10,7 +10,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,15 +22,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pyinstaller
-      - name: Run tests
+      - name: Compile Python sources
+        run: python -m compileall -q .
+      - name: Run automated tests
         run: pytest -q
-      - name: Build compact cross-vendor GPU application
-        run: pyinstaller --noconfirm --clean --onedir --windowed --name WhiteTargetAssistant --collect-all cv2 --collect-all pyopencl --collect-all mss --collect-all pyautogui app.py
+      - name: Build Windows desktop application
+        run: pyinstaller --noconfirm --clean --onedir --windowed --name "MapleStoryMiniGameAssistant" --collect-all cv2 --collect-all pyopencl --collect-all mss --collect-all pyautogui app.py
       - name: Upload Windows application
         uses: actions/upload-artifact@v4
         with:
-          name: WhiteTargetAssistant-Windows-OpenCL
-          path: dist/WhiteTargetAssistant/
+          name: MapleStory-MiniGameAssistant-Windows
+          path: dist/MapleStoryMiniGameAssistant/
           if-no-files-found: error
           compression-level: 6
           retention-days: 30
