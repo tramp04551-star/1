@@ -63,3 +63,12 @@ def test_initial_acquisition_ignores_top_countdown_digit():
     point = tracker.update(frame, 210, 500)
     assert point is not None
     assert 180 <= point[1] <= 330
+
+
+def test_kalman_transition_uses_real_elapsed_frame_interval():
+    tracker = WhiteTargetTracker(use_gpu=False)
+    frame = np.zeros((240, 320, 3), np.uint8)
+    frame[80:160, 110:210] = 255
+    tracker.update(frame, 210, 500, dt=2.0)
+    assert tracker.kf.transitionMatrix[0, 2] == 2.0
+    assert tracker.kf.transitionMatrix[1, 3] == 2.0
