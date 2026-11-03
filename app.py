@@ -39,7 +39,7 @@ def enumerate_game_windows():
             return True
         width, height = rect.right - rect.left, rect.bottom - rect.top
         if width >= 320 and height >= 240:
-            found.append((text, int(rect.left), int(rect.top), int(width), int(height)))
+            found.append((text, int(rect.left), int(rect.top), int(width), int(height), int(hwnd)))
         return True
 
     user32.EnumWindows(EnumWindowsProc(callback), 0)
@@ -98,6 +98,9 @@ class Assistant:
         self.last_backend = None
         self.window_choices = []
         self.selected_window = tk.StringVar(value="自动：主屏幕")
+        self.capture_window_selection = "自动：主屏幕"
+        self.capture_window_choices = []
+        self.target_hwnd = None
         self.build()
         self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
                           self.follow.get(), self.auto_confirm.get())
@@ -204,21 +207,30 @@ class Assistant:
             self.selected_window.set(labels[maple + 1] if maple is not None else labels[0])
 
     def _capture_region(self, capture):
-        selected = self.selected_window.get()
-        if selected.startswith("自动：") or not self.window_choices:
+        # Window selection is snapshotted on the Tk/UI thread before the worker
+        # starts; the capture thread never reads Tk variables.
+        selected = self.capture_window_selection
+        choices = self.capture_window_choices
+        if selected.startswith("自动：") or not choices:
             mon = capture.monitors[1]
             return {"left": mon["left"], "top": mon["top"],
                     "width": mon["width"], "height": mon["height"]}
-        for label, item in zip(
-            [f"{v[0]}  ({v[3]}×{v[4]})" for v in self.window_choices],
-            self.window_choices
-        ):
+        for item in choices:
+            label = f"{item[0]}  ({item[3]}×{item[4]})"
             if selected == label:
-                _, left, top, width, height = item
+                _, left, top, width, height, _hwnd = item
                 return {"left": left, "top": top, "width": width, "height": height}
         mon = capture.monitors[1]
         return {"left": mon["left"], "top": mon["top"],
                 "width": mon["width"], "height": mon["height"]}
+
+    def _game_window_has_focus(self):
+        if self.target_hwnd is None or __import__("sys").platform != "win32":
+            return True
+        try:
+            return int(ctypes.windll.user32.GetForegroundWindow()) == self.target_hwnd
+        except Exception:
+            return False
 
     def _ui(self, callback, *args):
         self.root.after(0, lambda: callback(*args))
@@ -228,6 +240,15 @@ class Assistant:
             return
         self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
                           self.follow.get(), self.auto_confirm.get())
+        self.capture_window_selection = self.selected_window.get()
+        self.capture_window_choices = list(self.window_choices)
+        self.target_hwnd = None
+        if not self.capture_window_selection.startswith("自动："):
+            for item in self.capture_window_choices:
+                if self.capture_window_selection == f"{item[0]}  ({item[3]}×{item[4]})":
+                    self.target_hwnd = item[5]
+                    break
+        self.window_combo.configure(state="disabled")
         self.running = True
         self.stop_event.clear()
         self.tracker.reset()
@@ -285,12 +306,15 @@ class Assistant:
                                      "图形可见 · 内部点" if self.tracker.last_detected
                                      else f"透明期预测 · {self.tracker.missing} 帧")
                             if follow:
-                                px, py = pyautogui.position()
-                                factor = float(np.clip(smoothing, .15, 1.0))
-                                target_x = int(screen["left"] + x)
-                                target_y = int(screen["top"] + y)
-                                pyautogui.moveTo(int(px + (target_x-px)*factor),
-                                                 int(py + (target_y-py)*factor), _pause=False)
+                                if self._game_window_has_focus():
+                                    px, py = pyautogui.position()
+                                    factor = float(np.clip(smoothing, .15, 1.0))
+                                    target_x = int(screen["left"] + x)
+                                    target_y = int(screen["top"] + y)
+                                    pyautogui.moveTo(int(px + (target_x-px)*factor),
+                                                     int(py + (target_y-py)*factor), _pause=False)
+                                else:
+                                    self._ui(self.target_state.set, "游戏窗口未置前 · 暂停输入")
                         else:
                             self._ui(self.target_state.set, "等待目标 / 下一轮")
                         if auto_confirm and success_banner(frame):
@@ -318,14 +342,20 @@ class Assistant:
                             self.last_button_point = button
 
                         if self.button_hits >= 3 and button:
-                            # The complete dialog and its confirm button have both
-                            # matched for three consecutive, spatially stable frames.
-                            pyautogui.click(screen["left"] + button[0],
-                                            screen["top"] + button[1])
-                            self.state = "after_confirm"
-                            self.after_confirm_clear_hits = 0
-                            self.last_button_point = None
-                            self._ui(self.status.set, "已点击确认：验证结果对话框关闭")
+                            # Never send input to a game window that has lost focus.
+                            if not self._game_window_has_focus():
+                                self.button_hits = 0
+                                self.last_button_point = None
+                                self._ui(self.status.set, "游戏窗口未置前：确认已暂停")
+                            else:
+                                # The complete dialog and its confirm button have both
+                                # matched for three consecutive, spatially stable frames.
+                                pyautogui.click(screen["left"] + button[0],
+                                                screen["top"] + button[1])
+                                self.state = "after_confirm"
+                                self.after_confirm_clear_hits = 0
+                                self.last_button_point = None
+                                self._ui(self.status.set, "已点击确认：验证结果对话框关闭")
                         elif time.monotonic() - self.dialog_started_at > 8.0:
                             self._ui(self.stop)
                             self._ui(self.status.set, "未能可靠识别确认按钮，已安全停止")
@@ -360,6 +390,7 @@ class Assistant:
         self.running = False
         self.start_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
+        self.window_combo.configure(state="readonly")
         if self.stop_event.is_set() and self.status.get() == "正在停止…":
             self.status.set("已停止")
 
