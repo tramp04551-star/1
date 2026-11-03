@@ -16,6 +16,54 @@ import pyautogui
 from tracker import WhiteTargetTracker
 from result_dialog import find_result_dialog
 
+def _configure_user32(user32):
+    """Set pointer-sized Win32 signatures; ctypes defaults HWND returns to c_int."""
+    signatures = {
+        "IsWindow": ([wintypes.HWND], wintypes.BOOL),
+        "IsIconic": ([wintypes.HWND], wintypes.BOOL),
+        "IsWindowVisible": ([wintypes.HWND], wintypes.BOOL),
+        "GetClientRect": ([wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL),
+        "ClientToScreen": ([wintypes.HWND, ctypes.POINTER(wintypes.POINT)], wintypes.BOOL),
+        "GetForegroundWindow": ([], wintypes.HWND),
+        "GetAncestor": ([wintypes.HWND, ctypes.c_uint], wintypes.HWND),
+        "GetWindowTextLengthW": ([wintypes.HWND], ctypes.c_int),
+        "GetWindowTextW": ([wintypes.HWND, wintypes.LPWSTR, ctypes.c_int], ctypes.c_int),
+    }
+    for name, (argtypes, restype) in signatures.items():
+        try:
+            function = getattr(user32, name)
+            function.argtypes = argtypes
+            function.restype = restype
+        except (AttributeError, TypeError):
+            # Test doubles are ordinary Python methods and do not expose ctypes
+            # function metadata; real WinDLL functions always accept the types.
+            pass
+    return user32
+
+
+def enable_dpi_awareness():
+    """Keep Win32 window coordinates and MSS physical pixels in one coordinate space."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_AWARE
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+enable_dpi_awareness()
+
+
 def _handle_value(handle):
     if isinstance(handle, int):
         return handle
@@ -27,7 +75,7 @@ def get_window_client_region(hwnd, user32=None):
     """Return the client-area screen rectangle, excluding title bar and borders."""
     if hwnd is None:
         return None
-    user32 = user32 or ctypes.windll.user32
+    user32 = _configure_user32(user32 or ctypes.windll.user32)
     try:
         handle = _handle_value(hwnd)
         if not user32.IsWindow(handle) or user32.IsIconic(handle):
@@ -60,6 +108,7 @@ def is_window_foreground(target_hwnd, user32=None):
         if sys.platform != "win32":
             return False
         user32 = ctypes.windll.user32
+    user32 = _configure_user32(user32)
     try:
         target = _handle_value(target_hwnd)
         if not user32.IsWindow(target):
@@ -78,9 +127,14 @@ def enumerate_game_windows():
     """Return visible Windows top-level windows with usable client rectangles."""
     if sys.platform != "win32":
         return []
-    user32 = ctypes.windll.user32
+    user32 = _configure_user32(ctypes.windll.user32)
     found = []
     EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    try:
+        user32.EnumWindows.argtypes = [EnumWindowsProc, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+    except (AttributeError, TypeError):
+        pass
 
     def callback(hwnd, _):
         handle = _handle_value(hwnd)
@@ -103,7 +157,10 @@ def enumerate_game_windows():
         return True
 
     user32.EnumWindows(EnumWindowsProc(callback), 0)
-    found.sort(key=lambda item: (("maple" not in item[0].lower()), -item[3]*item[4]))
+    found.sort(key=lambda item: (
+        not ("maple" in item[0].lower() or "冒险岛" in item[0]),
+        -item[3] * item[4],
+    ))
     return found
 
 pyautogui.FAILSAFE = True
