@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from collections import deque
 import ctypes
+import sys
 from ctypes import wintypes
 
 import cv2
@@ -15,31 +16,90 @@ import pyautogui
 from tracker import WhiteTargetTracker
 from result_dialog import find_result_dialog
 
+def _handle_value(handle):
+    if isinstance(handle, int):
+        return handle
+    value = ctypes.cast(handle, ctypes.c_void_p).value
+    return int(value or 0)
+
+
+def get_window_client_region(hwnd, user32=None):
+    """Return the client-area screen rectangle, excluding title bar and borders."""
+    if hwnd is None:
+        return None
+    user32 = user32 or ctypes.windll.user32
+    try:
+        handle = _handle_value(hwnd)
+        if not user32.IsWindow(handle) or user32.IsIconic(handle):
+            return None
+        client = wintypes.RECT()
+        if not user32.GetClientRect(handle, ctypes.byref(client)):
+            return None
+        origin = wintypes.POINT(0, 0)
+        if not user32.ClientToScreen(handle, ctypes.byref(origin)):
+            return None
+        width = int(client.right - client.left)
+        height = int(client.bottom - client.top)
+        if width < 1 or height < 1:
+            return None
+        return {
+            "left": int(origin.x),
+            "top": int(origin.y),
+            "width": width,
+            "height": height,
+        }
+    except Exception:
+        return None
+
+
+def is_window_foreground(target_hwnd, user32=None):
+    """Only allow input while the selected game window (or its child) is foreground."""
+    if target_hwnd is None:
+        return False
+    if user32 is None:
+        if sys.platform != "win32":
+            return False
+        user32 = ctypes.windll.user32
+    try:
+        target = _handle_value(target_hwnd)
+        if not user32.IsWindow(target):
+            return False
+        foreground = user32.GetForegroundWindow()
+        if not foreground:
+            return False
+        # GA_ROOT = 2: child controls belong to the selected top-level game window.
+        root = user32.GetAncestor(foreground, 2) or foreground
+        return _handle_value(root) == target
+    except Exception:
+        return False
+
+
 def enumerate_game_windows():
     """Return visible Windows top-level windows with usable client rectangles."""
-    if __import__("sys").platform != "win32":
+    if sys.platform != "win32":
         return []
     user32 = ctypes.windll.user32
     found = []
     EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def callback(hwnd, _):
-        if not user32.IsWindowVisible(hwnd):
+        handle = _handle_value(hwnd)
+        if not user32.IsWindowVisible(handle):
             return True
-        length = user32.GetWindowTextLengthW(hwnd)
+        length = user32.GetWindowTextLengthW(handle)
         if length <= 0:
             return True
         title = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, title, length + 1)
+        user32.GetWindowTextW(handle, title, length + 1)
         text = title.value.strip()
         if not text or "冒险岛小游戏助手" in text:
             return True
-        rect = wintypes.RECT()
-        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            return True
-        width, height = rect.right - rect.left, rect.bottom - rect.top
-        if width >= 320 and height >= 240:
-            found.append((text, int(rect.left), int(rect.top), int(width), int(height), int(hwnd)))
+        region = get_window_client_region(handle, user32)
+        if region and region["width"] >= 320 and region["height"] >= 240:
+            found.append((
+                text, region["left"], region["top"],
+                region["width"], region["height"], handle
+            ))
         return True
 
     user32.EnumWindows(EnumWindowsProc(callback), 0)
@@ -101,6 +161,9 @@ class Assistant:
         self.capture_window_selection = "自动：主屏幕"
         self.capture_window_choices = []
         self.target_hwnd = None
+        self.dialog_detect_hits = 0
+        self.confirm_blocked_notice = False
+        self._closing = False
         self.build()
         self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
                           self.follow.get(), self.auto_confirm.get())
@@ -207,30 +270,20 @@ class Assistant:
             self.selected_window.set(labels[maple + 1] if maple is not None else labels[0])
 
     def _capture_region(self, capture):
-        # Window selection is snapshotted on the Tk/UI thread before the worker
-        # starts; the capture thread never reads Tk variables.
-        selected = self.capture_window_selection
-        choices = self.capture_window_choices
-        if selected.startswith("自动：") or not choices:
-            mon = capture.monitors[1]
-            return {"left": mon["left"], "top": mon["top"],
-                    "width": mon["width"], "height": mon["height"]}
-        for item in choices:
-            label = f"{item[0]}  ({item[3]}×{item[4]})"
-            if selected == label:
-                _, left, top, width, height, _hwnd = item
-                return {"left": left, "top": top, "width": width, "height": height}
+        # The selected HWND is immutable for this run; resolve its current client
+        # rectangle every two seconds so moving/resizing the game does not stale
+        # the capture origin. Desktop mode remains monitor-only and cannot inject.
+        if self.target_hwnd is not None:
+            region = get_window_client_region(self.target_hwnd)
+            if region is None:
+                raise RuntimeError("所选游戏窗口已关闭或最小化")
+            return region
         mon = capture.monitors[1]
         return {"left": mon["left"], "top": mon["top"],
                 "width": mon["width"], "height": mon["height"]}
 
     def _game_window_has_focus(self):
-        if self.target_hwnd is None or __import__("sys").platform != "win32":
-            return True
-        try:
-            return int(ctypes.windll.user32.GetForegroundWindow()) == self.target_hwnd
-        except Exception:
-            return False
+        return is_window_foreground(self.target_hwnd)
 
     def _ui(self, callback, *args):
         self.root.after(0, lambda: callback(*args))
@@ -257,6 +310,8 @@ class Assistant:
         self.last_button_point = None
         self.dialog_started_at = 0.0
         self.after_confirm_clear_hits = 0
+        self.dialog_detect_hits = 0
+        self.confirm_blocked_notice = False
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.status.set("监控中：等待白色目标出现")
@@ -331,16 +386,39 @@ class Assistant:
                                     self._ui(self.target_state.set, "游戏窗口未置前 · 暂停输入")
                         else:
                             self._ui(self.target_state.set, "等待目标 / 下一轮")
+                        result_match = find_result_dialog(frame) if auto_confirm else None
+                        if result_match is not None:
+                            self.dialog_detect_hits = min(self.dialog_detect_hits + 1, 8)
+                        else:
+                            self.dialog_detect_hits = 0
+
                         if auto_confirm and success_banner(frame):
                             self.success_hits = min(self.success_hits + 1, 8)
                         else:
                             self.success_hits = max(0, self.success_hits - 1)
-                        if auto_confirm and self.success_hits >= 3:
-                            self.state = "dialog"
-                            self.button_hits = 0
-                            self.last_button_point = None
-                            self.dialog_started_at = time.monotonic()
-                            self._ui(self.status.set, "检测到成功标志：等待结果对话框")
+
+                        # The complete dialog template is a direct completion
+                        # signal; the banner is only a fallback for delayed dialogs.
+                        completion_seen = (
+                            self.dialog_detect_hits >= 3 or self.success_hits >= 3
+                        )
+                        if auto_confirm and completion_seen:
+                            if self.target_hwnd is None:
+                                if not self.confirm_blocked_notice:
+                                    self._ui(
+                                        self.status.set,
+                                        "当前为桌面监控模式：请选择具体游戏窗口后才能自动跟随/确认"
+                                    )
+                                    self.confirm_blocked_notice = True
+                                self.success_hits = 0
+                                self.dialog_detect_hits = 0
+                            else:
+                                self.state = "dialog"
+                                self.button_hits = 0
+                                self.last_button_point = None
+                                self.dialog_started_at = time.monotonic()
+                                self.dialog_detect_hits = 0
+                                self._ui(self.status.set, "检测到完成状态：等待确认按钮")
                     elif self.state == "dialog":
                         button = confirm_button(frame)
                         if button is None:
@@ -393,19 +471,26 @@ class Assistant:
                             self._ui(self.status.set, "已验证对话框关闭：等待下一轮")
                     time.sleep(.025)
         except pyautogui.FailSafeException:
-            self._ui(self.stop)
+            self.stop_event.set()
+            worker_message = "已触发左上角紧急停止"
         except Exception as exc:
-            self._ui(self.status.set, f"运行错误：{exc}")
-            self._ui(self.stop)
+            self.stop_event.set()
+            worker_message = f"运行错误：{type(exc).__name__}: {exc}"
+        else:
+            worker_message = None
         finally:
-            self._ui(self._worker_finished)
+            self._ui(self._worker_finished, locals().get("worker_message"))
 
-    def _worker_finished(self):
+    def _worker_finished(self, worker_message=None):
         self.running = False
+        if self._closing:
+            return
         self.start_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
         self.window_combo.configure(state="readonly")
-        if self.stop_event.is_set() and self.status.get() == "正在停止…":
+        if worker_message:
+            self.status.set(worker_message)
+        elif self.stop_event.is_set() and self.status.get() == "正在停止…":
             self.status.set("已停止")
 
     @property
@@ -434,8 +519,17 @@ class Assistant:
         self.root.after(100, self._refresh_snapshot)
 
     def close(self):
+        if self._closing:
+            return
+        self._closing = True
         self.stop()
-        self.root.after(100, self.root.destroy)
+        self._wait_for_worker_exit()
+
+    def _wait_for_worker_exit(self):
+        if self.worker is not None and self.worker.is_alive():
+            self.root.after(50, self._wait_for_worker_exit)
+            return
+        self.root.destroy()
 
 
 if __name__ == "__main__":
