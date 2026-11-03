@@ -242,8 +242,8 @@ class Assistant:
         self.after_confirm_clear_hits = 0
         self.last_backend = None
         self.window_choices = []
-        self.selected_window = tk.StringVar(value="自动：主屏幕")
-        self.capture_window_selection = "自动：主屏幕"
+        self.selected_window = tk.StringVar(value="自动：桌面监控（仅监控）")
+        self.capture_window_selection = "自动：桌面监控（仅监控）"
         self.capture_window_choices = []
         self.target_hwnd = None
         self.capture_client_size = None
@@ -324,7 +324,7 @@ class Assistant:
         ttk.Label(status, textvariable=self.rounds, font=("Segoe UI", 16, "bold")).pack(anchor="w")
         log = ttk.LabelFrame(right, text="操作提示", padding=12)
         log.pack(fill="both", expand=True)
-        ttk.Label(log, text="• 鼠标移至左上角可紧急停止\n• 透明期按最后轨迹预测\n• GPU 不可用时自动回退 CPU\n• 仅在检测到完成状态后确认",
+        ttk.Label(log, text="• 鼠标移至左上角可紧急停止\n• 透明期光流辅助并显示预测置信度\n• 低置信度或失焦时暂停输入\n• 桌面模式仅监控，不发送输入",
                   wraplength=220, justify="left").pack(anchor="w")
         footer = ttk.Frame(self.root, padding=(18, 8))
         footer.pack(fill="x")
@@ -344,7 +344,7 @@ class Assistant:
 
     def refresh_windows(self):
         self.window_choices = enumerate_game_windows()
-        labels = ["自动：主屏幕"] + [
+        labels = ["自动：桌面监控（仅监控）"] + [
             f"{item[0]}  ({item[3]}×{item[4]})" for item in self.window_choices
         ]
         self.window_combo["values"] = labels
@@ -390,6 +390,9 @@ class Assistant:
                 if self.capture_window_selection == f"{item[0]}  ({item[3]}×{item[4]})":
                     self.target_hwnd = item[5]
                     break
+            if self.target_hwnd is None:
+                self.status.set("所选窗口已失效：请刷新窗口列表后重新选择")
+                return
         self.capture_client_size = None
         if self.target_hwnd is not None:
             client_region = get_window_client_region(self.target_hwnd)
@@ -484,7 +487,12 @@ class Assistant:
                                         pyautogui.moveTo(int(px + (target_x-px)*factor),
                                                          int(py + (target_y-py)*factor), _pause=False)
                                 else:
-                                    self._ui(self.target_state.set, "游戏窗口未置前 · 暂停输入")
+                                    self._ui(
+                                        self.target_state.set,
+                                        "桌面监控 · 未选择游戏窗口，输入已禁用"
+                                        if self.target_hwnd is None
+                                        else "游戏窗口未置前 · 暂停输入"
+                                    )
                         else:
                             self._ui(self.target_state.set, "等待目标 / 下一轮")
                         result_match = find_result_dialog(frame) if auto_confirm else None
