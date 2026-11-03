@@ -33,6 +33,28 @@ def test_result_dialog_and_confirm_button_match_reference_geometry():
     assert match.button_score >= 0.99
 
 
+
+def make_second_session_dialog_frame():
+    dialog = cv2.imread(
+        str(ASSETS / "result_dialog_validation_template.png"), cv2.IMREAD_GRAYSCALE
+    )
+    button = cv2.imread(
+        str(ASSETS / "confirm_button_template.png"), cv2.IMREAD_GRAYSCALE
+    )
+    assert dialog is not None and button is not None
+    gray = np.full((563, 759), 64, dtype=np.uint8)
+    gray[220:220 + dialog.shape[0], 242:242 + dialog.shape[1]] = dialog
+    gray[338:338 + button.shape[0], 475:475 + button.shape[1]] = button
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+
+
+def test_second_session_result_dialog_matches_without_first_session_pixels():
+    match = find_result_dialog(make_second_session_dialog_frame())
+    assert match is not None
+    assert match.dialog_score >= 0.97
+    assert match.button_score >= 0.99
+    assert match.confirm_point == (502, 355)
+
 def test_missing_confirm_button_is_not_actionable():
     frame = make_reference_dialog_frame()
     # The confirm button sits at the measured offset inside the dialog.
