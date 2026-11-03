@@ -140,7 +140,7 @@ class WhiteTargetTracker:
             # Restrict first acquisition so a bright countdown digit cannot steal
             # the target lock. Once acquired, tracking uses the full game window.
             x0, x1 = int(w * 0.10), int(w * 0.90)
-            y0, y1 = int(h * 0.30), int(h * 0.88)
+            y0, y1 = int(h * 0.42), int(h * 0.88)
             acquire_mask = white[y0:y1, x0:x1]
             candidates = self._components(
                 acquire_mask, max(1200, int(min_area)), max(50000, h*w//12)
