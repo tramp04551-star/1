@@ -261,11 +261,16 @@ class Assistant:
         try:
             with mss.mss() as capture:
                 screen = self._capture_region(capture)
+                previous_frame_time = time.perf_counter()
+                next_region_refresh = time.monotonic() + 2.0
                 while not self.stop_event.is_set():
-                    # Refresh the selected window rectangle occasionally so a
-                    # moved/resized game window does not leave stale coordinates.
-                    if int(time.monotonic() * 2) % 10 == 0:
+                    now = time.perf_counter()
+                    dt_frames = max(0.20, min(4.0, (now - previous_frame_time) * 30.0))
+                    previous_frame_time = now
+                    # Refresh the selected window rectangle periodically.
+                    if time.monotonic() >= next_region_refresh:
                         screen = self._capture_region(capture)
+                        next_region_refresh = time.monotonic() + 2.0
                     frame = np.asarray(capture.grab(screen))[:, :, :3][:, :, ::-1].copy()
                     # Tk variables are read on the UI thread only; snapshot values
                     # are refreshed by the UI before starting and via trace callbacks.
@@ -276,7 +281,7 @@ class Assistant:
                     auto_confirm = self.auto_value
 
                     if self.state == "monitor":
-                        point = self.tracker.update(frame, threshold, min_area)
+                        point = self.tracker.update(frame, threshold, min_area, dt=dt_frames)
                         if self.last_backend != self.tracker.backend_name:
                             self._ui(self.backend.set, self.tracker.backend_name)
                             self.last_backend = self.tracker.backend_name
