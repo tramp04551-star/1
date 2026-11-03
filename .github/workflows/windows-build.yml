@@ -36,7 +36,8 @@ jobs:
           if (!(Test-Path "result_dialog.py")) { throw "result_dialog.py is missing" }
           if (!(Test-Path "assets/result_dialog_template.png")) { throw "result dialog template is missing" }
           if (!(Test-Path "assets/confirm_button_template.png")) { throw "confirm button template is missing" }
-          if (Test-Path "inminigame_assistant.py") { Write-Host "Legacy file detected; it is not used by this build." }
+          if (Test-Path "inminigame_assistant.py") { throw "Legacy application source must not be present." }
+          if (Test-Path ".build") { throw "Obsolete hidden source bundle must not be present." }
 
       - name: Compile active application sources
         run: python -m compileall -q app.py tracker.py gpu_backend.py result_dialog.py tools
