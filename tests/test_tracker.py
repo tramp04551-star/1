@@ -72,3 +72,15 @@ def test_kalman_transition_uses_real_elapsed_frame_interval():
     tracker.update(frame, 210, 500, dt=2.0)
     assert tracker.kf.transitionMatrix[0, 2] == 2.0
     assert tracker.kf.transitionMatrix[1, 3] == 2.0
+
+def test_initial_lock_ignores_upper_overlay_when_shapes_touch():
+    import cv2
+    frame = np.zeros((484, 704, 3), np.uint8)
+    cv2.rectangle(frame, (325, 60), (385, 198), (245, 245, 245), -1)
+    polygon = np.array([[305, 190], [385, 205], [395, 270],
+                        [355, 320], [295, 270]], np.int32)
+    cv2.fillPoly(frame, [polygon], (255, 255, 255))
+    tracker = WhiteTargetTracker(use_gpu=False)
+    point = tracker.update(frame, 210, 500)
+    assert point is not None
+    assert point[1] >= 203
