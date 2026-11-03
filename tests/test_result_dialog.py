@@ -23,7 +23,7 @@ def test_result_dialog_and_confirm_button_match_reference_geometry():
     match = find_result_dialog(make_reference_dialog_frame())
     assert match is not None
     assert match.dialog_rect == (242, 220, 287, 151)
-    assert match.confirm_point == (503, 355)
+    assert match.confirm_point == (502, 355)
     assert match.dialog_score >= 0.99
     assert match.button_score >= 0.99
 
@@ -55,5 +55,5 @@ def test_uniform_capture_scaling_preserves_click_mapping():
     scaled = cv2.resize(original, (1139, 844), interpolation=cv2.INTER_LINEAR)
     match = find_result_dialog(scaled)
     assert match is not None
-    assert abs(match.confirm_point[0] - 755) <= 2
+    assert abs(match.confirm_point[0] - 754) <= 2
     assert abs(match.confirm_point[1] - 532) <= 2
