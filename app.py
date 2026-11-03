@@ -41,6 +41,22 @@ from result_dialog import find_result_dialog
 
 
 GAME_ROI = (306, 119, 759, 563)
+MIN_INPUT_CONFIDENCE = 0.30
+INPUT_DEAD_ZONE_PX = 10
+
+
+def smoothed_mouse_position(current, target, factor, dead_zone=INPUT_DEAD_ZONE_PX):
+    """Return a smoothed cursor position, or None inside the jitter dead zone."""
+    px, py = current
+    tx, ty = target
+    dx, dy = tx - px, ty - py
+    if float(np.hypot(dx, dy)) < float(dead_zone):
+        return None
+    factor = float(np.clip(factor, 0.15, 1.0))
+    return (
+        int(round(px + dx * factor)),
+        int(round(py + dy * factor)),
+    )
 
 
 def map_game_roi(client_region, expected_client_size=None):
@@ -225,7 +241,7 @@ class Assistant:
         self.worker = None
         self.threshold = tk.IntVar(value=215)
         self.area = tk.IntVar(value=500)
-        self.smooth = tk.DoubleVar(value=.62)
+        self.smooth = tk.DoubleVar(value=.85)
         self.follow = tk.BooleanVar(value=True)
         self.auto_confirm = tk.BooleanVar(value=True)
         self.status = tk.StringVar(value="待机：等待开始")
@@ -470,22 +486,26 @@ class Assistant:
                                 )
                             self._ui(self.target_state.set, state_label)
                             if follow:
-                                if self.tracker.last_confidence < 0.12:
+                                if self.tracker.last_confidence < MIN_INPUT_CONFIDENCE:
                                     self._ui(
                                         self.target_state.set,
-                                        f"预测置信度过低 ({self.tracker.last_confidence:.2f}) · 暂停输入"
+                                        f"预测置信度低于 {MIN_INPUT_CONFIDENCE:.2f} · 暂停输入"
                                     )
                                 elif self._game_window_has_focus():
                                     latest_screen = self._capture_region(capture)
                                     if latest_screen != screen:
                                         self._ui(self.target_state.set, "窗口位置变化 · 重新捕获")
                                     else:
-                                        px, py = pyautogui.position()
-                                        factor = float(np.clip(smoothing, .15, 1.0))
-                                        target_x = int(latest_screen["left"] + x)
-                                        target_y = int(latest_screen["top"] + y)
-                                        pyautogui.moveTo(int(px + (target_x-px)*factor),
-                                                         int(py + (target_y-py)*factor), _pause=False)
+                                        current_position = pyautogui.position()
+                                        target_position = (
+                                            int(latest_screen["left"] + x),
+                                            int(latest_screen["top"] + y),
+                                        )
+                                        next_position = smoothed_mouse_position(
+                                            current_position, target_position, smoothing
+                                        )
+                                        if next_position is not None:
+                                            pyautogui.moveTo(*next_position, _pause=False)
                                 else:
                                     self._ui(
                                         self.target_state.set,
