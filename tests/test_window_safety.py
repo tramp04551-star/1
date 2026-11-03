@@ -1,6 +1,6 @@
 import ctypes
 
-from app import get_window_client_region, is_window_foreground, map_game_roi
+from app import (\n    get_window_client_region, is_window_foreground, map_game_roi,\n    smoothed_mouse_position,\n)
 
 
 class FakeUser32:
@@ -93,3 +93,12 @@ def test_fixed_roi_rejects_client_resize_after_start():
         assert "尺寸已变化" in str(exc)
     else:
         raise AssertionError("client resize must invalidate the ROI mapping")
+
+
+
+def test_cursor_dead_zone_suppresses_small_jitter():
+    assert smoothed_mouse_position((100, 100), (105, 106), 0.85) is None
+
+
+def test_cursor_smoothing_uses_reference_factor_outside_dead_zone():
+    assert smoothed_mouse_position((100, 100), (120, 100), 0.85) == (117, 100)
