@@ -1,43 +1,61 @@
-name: Windows reference-based assistant build
+name: Windows V2 desktop assistant build
+
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
   pull_request:
     branches: [ main ]
+
 permissions:
   contents: read
+
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - name: Restore the validated reference-based implementation
-        shell: pwsh
-        run: |
-          python -c "import base64,pathlib; p=pathlib.Path('.build'); pathlib.Path('assistant_source.tar.gz').write_bytes(base64.b64decode((p/'reference_assistant.tar.gz.b64').read_bytes()+(p/'reference_assistant.part2').read_bytes()))"
-          tar -xzf assistant_source.tar.gz --strip-components=1
-          if (!(Test-Path 'inminigame_assistant.py')) { throw 'Source bundle extraction failed' }
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pyinstaller
-      - name: Compile Python sources
-        run: python -m compileall -q .
-      - name: Run automated and reference regression tests
+
+      - name: Verify single-source application and templates
+        shell: pwsh
+        run: |
+          if (!(Test-Path "app.py")) { throw "app.py is missing" }
+          if (!(Test-Path "result_dialog.py")) { throw "result_dialog.py is missing" }
+          if (!(Test-Path "assets/result_dialog_template.png")) { throw "result dialog template is missing" }
+          if (!(Test-Path "assets/confirm_button_template.png")) { throw "confirm button template is missing" }
+          if (Test-Path "inminigame_assistant.py") { Write-Host "Legacy file detected; it is not used by this build." }
+
+      - name: Compile active application sources
+        run: python -m compileall -q app.py tracker.py gpu_backend.py result_dialog.py
+
+      - name: Run tracker and reference-dialog regression tests
         run: pytest -q
-      - name: Build Windows desktop application
-        run: pyinstaller --noconfirm --clean --onedir --windowed --name "MapleStoryMiniGameAssistant" --collect-all cv2 --collect-all pyopencl inminigame_assistant.py
+
+      - name: Build Windows desktop application from repository sources
+        run: >
+          pyinstaller --noconfirm --clean --onedir --windowed
+          --name "MapleStoryMiniGameAssistant"
+          --collect-all cv2 --collect-all pyopencl --collect-all mss --collect-all pyautogui
+          --add-data "assets;assets"
+          app.py
+
       - name: Upload Windows application
         uses: actions/upload-artifact@v4
         with:
-          name: MapleStory-MiniGameAssistant-Reference-Windows
+          name: MapleStory-MiniGameAssistant-V2-Windows
           path: dist/MapleStoryMiniGameAssistant/
           if-no-files-found: error
           compression-level: 6
