@@ -92,6 +92,7 @@ class Assistant:
         self.tracker = WhiteTargetTracker()
         self.stop_event = threading.Event()
         self.running = False
+        self.worker = None
         self.threshold = tk.IntVar(value=215)
         self.area = tk.IntVar(value=500)
         self.smooth = tk.DoubleVar(value=.62)
@@ -235,7 +236,7 @@ class Assistant:
         self.root.after(0, lambda: callback(*args))
 
     def start(self):
-        if self.running:
+        if self.running or (self.worker is not None and self.worker.is_alive()):
             return
         self._snapshot = (self.threshold.get(), self.area.get(), self.smooth.get(),
                           self.follow.get(), self.auto_confirm.get())
@@ -247,14 +248,16 @@ class Assistant:
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.status.set("监控中：等待白色目标出现")
-        threading.Thread(target=self.loop, daemon=True).start()
+        self.worker = threading.Thread(target=self.loop, daemon=True)
+        self.worker.start()
 
     def stop(self):
         self.running = False
         self.stop_event.set()
-        self.start_btn.configure(state="normal")
+        worker_alive = self.worker is not None and self.worker.is_alive()
+        self.start_btn.configure(state="disabled" if worker_alive else "normal")
         self.stop_btn.configure(state="disabled")
-        self.status.set("已停止")
+        self.status.set("正在停止…" if worker_alive else "已停止")
         self.target_state.set("未锁定")
 
     def loop(self):
@@ -330,6 +333,15 @@ class Assistant:
         except Exception as exc:
             self._ui(self.status.set, f"运行错误：{exc}")
             self._ui(self.stop)
+        finally:
+            self._ui(self._worker_finished)
+
+    def _worker_finished(self):
+        self.running = False
+        self.start_btn.configure(state="normal")
+        self.stop_btn.configure(state="disabled")
+        if self.stop_event.is_set() and self.status.get() == "正在停止…":
+            self.status.set("已停止")
 
     @property
     def threshold_value(self):
