@@ -1,7 +1,7 @@
 import ctypes
 
 from app import (
-    get_window_client_region, is_window_foreground, map_game_roi,
+    _handle_value, get_window_client_region, is_window_foreground, map_game_roi,
     smoothed_mouse_position,
 )
 
@@ -105,3 +105,10 @@ def test_cursor_dead_zone_suppresses_small_jitter():
 
 def test_cursor_smoothing_uses_reference_factor_outside_dead_zone():
     assert smoothed_mouse_position((100, 100), (120, 100), 0.85) == (117, 100)
+
+
+
+def test_native_window_handle_keeps_64_bit_value():
+    handle = 0x123456789ABC
+    assert _handle_value(handle) == handle
+    assert _handle_value(ctypes.c_void_p(handle)) == handle
