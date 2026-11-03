@@ -34,3 +34,21 @@ def test_optical_flow_rejects_shape_mismatch():
     tracker.prev_gray = np.zeros((100, 100), dtype=np.uint8)
     tracker.last_mask = np.ones((100, 100), dtype=np.uint8)
     assert tracker._estimate_flow(np.zeros((120, 100), dtype=np.uint8)) is None
+
+
+def test_prediction_confidence_decays_when_visual_evidence_disappears():
+    frame = np.zeros((240, 320, 3), dtype=np.uint8)
+    frame[80:160, 110:210] = 255
+    tracker = WhiteTargetTracker(use_gpu=False, max_missing=60)
+    # Disable the background-subtractor motion fallback for this deterministic
+    # no-observation regression.
+    tracker.warmup = -1000
+    assert tracker.update(frame, threshold=210, min_area=500) is not None
+    initial_confidence = tracker.last_confidence
+
+    blank = np.zeros_like(frame)
+    for _ in range(20):
+        tracker.update(blank, threshold=210, min_area=500)
+
+    assert tracker.last_confidence < initial_confidence
+    assert tracker.missing > 0
