@@ -48,3 +48,18 @@ def test_opencl_failure_falls_back_to_cpu():
     frame = np.full((16, 16, 3), 255, np.uint8)
     assert np.all(processor.white_mask(frame, 215) == 255)
     assert not processor.gpu_active
+
+
+def test_initial_acquisition_ignores_top_countdown_digit():
+    import cv2
+    frame = np.zeros((484, 704, 3), np.uint8)
+    # Simulate a bright countdown digit in the upper center and the actual
+    # white game piece in the central playfield.
+    cv2.rectangle(frame, (330, 65), (375, 160), (245, 245, 245), -1)
+    polygon = np.array([[305, 205], [385, 210], [395, 270],
+                        [355, 310], [295, 270]], np.int32)
+    cv2.fillPoly(frame, [polygon], (255, 255, 255))
+    tracker = WhiteTargetTracker(use_gpu=False)
+    point = tracker.update(frame, 210, 500)
+    assert point is not None
+    assert 180 <= point[1] <= 330
