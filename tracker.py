@@ -115,7 +115,17 @@ class WhiteTargetTracker:
         )
         return combined
 
-    def update(self, frame, threshold=215, min_area=500):
+    def update(self, frame, threshold=215, min_area=500, dt=1.0):
+        # dt is expressed in nominal 30-fps frames. The capture loop can vary
+        # with CPU/GPU load, so a fixed one-frame Kalman step mispredicts motion.
+        dt = float(np.clip(dt, 0.20, 4.0))
+        self.kf.transitionMatrix = np.array(
+            [[1, 0, dt, 0], [0, 1, 0, dt],
+             [0, 0, 1, 0], [0, 0, 0, 1]], np.float32
+        )
+        self.kf.processNoiseCov = np.diag(
+            [0.08 * dt, 0.08 * dt, 0.8 * dt, 0.8 * dt]
+        ).astype(np.float32)
         fg = self.bg.apply(frame, learningRate=0.003)
         self.warmup += 1
         fg = cv2.medianBlur(fg, 5)
