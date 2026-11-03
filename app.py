@@ -39,6 +39,34 @@ import pyautogui
 from tracker import WhiteTargetTracker
 from result_dialog import find_result_dialog
 
+
+GAME_ROI = (306, 119, 759, 563)
+
+
+def map_game_roi(client_region, expected_client_size=None):
+    """Map the fixed reference ROI into physical desktop coordinates."""
+    if client_region is None:
+        raise ValueError("游戏窗口客户区不可用")
+    client_size = (int(client_region["width"]), int(client_region["height"]))
+    if expected_client_size is not None and client_size != tuple(expected_client_size):
+        raise ValueError(
+            f"游戏客户区尺寸已变化：{client_size[0]}×{client_size[1]}，"
+            f"预期 {expected_client_size[0]}×{expected_client_size[1]}"
+        )
+    x, y, width, height = GAME_ROI
+    if client_size[0] < x + width or client_size[1] < y + height:
+        raise ValueError(
+            f"游戏客户区 {client_size[0]}×{client_size[1]} 不足以容纳固定 ROI "
+            f"{x},{y},{width},{height}"
+        )
+    return {
+        "left": int(client_region["left"]) + x,
+        "top": int(client_region["top"]) + y,
+        "width": width,
+        "height": height,
+    }
+
+
 def _configure_user32(user32):
     """Set pointer-sized Win32 signatures; ctypes defaults HWND returns to c_int."""
     signatures = {
@@ -218,6 +246,7 @@ class Assistant:
         self.capture_window_selection = "自动：主屏幕"
         self.capture_window_choices = []
         self.target_hwnd = None
+        self.capture_client_size = None
         self.dialog_detect_hits = 0
         self.confirm_blocked_notice = False
         self._closing = False
@@ -334,7 +363,10 @@ class Assistant:
             region = get_window_client_region(self.target_hwnd)
             if region is None:
                 raise RuntimeError("所选游戏窗口已关闭或最小化")
-            return region
+            try:
+                return map_game_roi(region, self.capture_client_size)
+            except ValueError as exc:
+                raise RuntimeError(str(exc)) from exc
         mon = capture.monitors[1]
         return {"left": mon["left"], "top": mon["top"],
                 "width": mon["width"], "height": mon["height"]}
@@ -358,6 +390,17 @@ class Assistant:
                 if self.capture_window_selection == f"{item[0]}  ({item[3]}×{item[4]})":
                     self.target_hwnd = item[5]
                     break
+        self.capture_client_size = None
+        if self.target_hwnd is not None:
+            client_region = get_window_client_region(self.target_hwnd)
+            try:
+                initial_roi = map_game_roi(client_region)
+            except ValueError as exc:
+                self.status.set(f"无法开始：{exc}")
+                return
+            self.capture_client_size = (
+                client_region["width"], client_region["height"]
+            )
         self.window_combo.configure(state="disabled")
         self.running = True
         self.stop_event.clear()
