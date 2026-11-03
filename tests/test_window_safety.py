@@ -1,6 +1,6 @@
 import ctypes
 
-from app import get_window_client_region, is_window_foreground
+from app import get_window_client_region, is_window_foreground, map_game_roi
 
 
 class FakeUser32:
@@ -62,3 +62,34 @@ def test_client_capture_region_uses_client_origin_and_dimensions():
 
 def test_client_capture_region_rejects_minimized_window():
     assert get_window_client_region(42, FakeUser32(minimized=True)) is None
+
+
+
+def test_fixed_roi_maps_from_client_origin_without_scaling():
+    client = {"left": 120, "top": 80, "width": 1400, "height": 900}
+    assert map_game_roi(client) == {
+        "left": 426,
+        "top": 199,
+        "width": 759,
+        "height": 563,
+    }
+
+
+def test_fixed_roi_rejects_client_area_that_is_too_small():
+    client = {"left": 0, "top": 0, "width": 1000, "height": 800}
+    try:
+        map_game_roi(client)
+    except ValueError as exc:
+        assert "不足以容纳固定 ROI" in str(exc)
+    else:
+        raise AssertionError("undersized client area must be rejected")
+
+
+def test_fixed_roi_rejects_client_resize_after_start():
+    client = {"left": 0, "top": 0, "width": 1401, "height": 900}
+    try:
+        map_game_roi(client, expected_client_size=(1400, 900))
+    except ValueError as exc:
+        assert "尺寸已变化" in str(exc)
+    else:
+        raise AssertionError("client resize must invalidate the ROI mapping")
