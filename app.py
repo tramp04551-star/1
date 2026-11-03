@@ -302,11 +302,25 @@ class Assistant:
                             self.last_backend = self.tracker.backend_name
                         if point is not None:
                             x, y = point
-                            self._ui(self.target_state.set,
-                                     "图形可见 · 内部点" if self.tracker.last_detected
-                                     else f"透明期预测 · {self.tracker.missing} 帧")
+                            if self.tracker.last_detected:
+                                state_label = "图形可见 · 安全内部点"
+                            elif self.tracker.flow_confidence >= 0.20:
+                                state_label = (
+                                    f"透明期光流辅助 · 置信度 {self.tracker.last_confidence:.2f}"
+                                )
+                            else:
+                                state_label = (
+                                    f"轨迹预测 · 第 {self.tracker.missing} 帧 · "
+                                    f"置信度 {self.tracker.last_confidence:.2f}"
+                                )
+                            self._ui(self.target_state.set, state_label)
                             if follow:
-                                if self._game_window_has_focus():
+                                if self.tracker.last_confidence < 0.12:
+                                    self._ui(
+                                        self.target_state.set,
+                                        f"预测置信度过低 ({self.tracker.last_confidence:.2f}) · 暂停输入"
+                                    )
+                                elif self._game_window_has_focus():
                                     px, py = pyautogui.position()
                                     factor = float(np.clip(smoothing, .15, 1.0))
                                     target_x = int(screen["left"] + x)
