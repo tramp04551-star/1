@@ -109,10 +109,12 @@ class WhiteTargetTracker:
             (max(125, int(threshold) - 55), 68),
         ]
         combined = np.zeros(frame.shape[:2], np.uint8)
+        # Saturation is shared by all hysteresis levels; convert HSV once per
+        # frame instead of repeating the full RGB->HSV conversion three times.
+        saturation = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)[:, :, 1]
         for lum, sat in levels:
             mask = self.mask_processor.white_mask(frame, lum)
-            hsv = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)
-            mask &= cv2.inRange(hsv[:, :, 1], 0, sat)
+            mask &= cv2.inRange(saturation, 0, sat)
             combined = cv2.bitwise_or(combined, mask)
         combined = cv2.morphologyEx(
             combined, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
