@@ -1,23 +1,25 @@
+"""Reference replay regressions for the active tracker implementation."""
 import cv2
 import numpy as np
-from inminigame_assistant import ShapeTracker, EndMarker
+
+from tracker import WhiteTargetTracker
 
 
-def test_shape_tracker_ignores_upper_countdown_and_locks_center_piece():
-    frame = np.zeros((503, 740, 3), np.uint8)
-    cv2.rectangle(frame, (330, 55), (390, 145), (245, 245, 245), -1)
-    polygon = np.array([[340, 190], [420, 220], [390, 330], [300, 290]], np.int32)
-    cv2.fillConvexPoly(frame, polygon, (255, 255, 255))
-    tracker = ShapeTracker(use_gpu=False)
-    point, mode, confidence, detection = tracker.update(frame, 1.0)
-    assert point is not None and detection is not None
-    assert detection.area >= 6000
-    assert 135 <= point[1] <= 420
+def test_initial_lock_does_not_switch_to_connected_countdown_overlay():
+    frame = np.zeros((563, 759, 3), np.uint8)
+    # Countdown overlay touches the top of the target, as in the reference
+    # sequence. The acquisition gate must still choose the playfield object.
+    cv2.rectangle(frame, (345, 60), (405, 205), (245, 245, 245), -1)
+    polygon = np.array(
+        [[315, 196], [400, 208], [410, 285], [365, 330], [305, 280]],
+        np.int32,
+    )
+    cv2.fillPoly(frame, [polygon], (255, 255, 255))
 
+    tracker = WhiteTargetTracker(use_gpu=False)
+    point = tracker.update(frame, threshold=210, min_area=500)
 
-def test_end_marker_detects_bright_success_banner():
-    frame = np.zeros((503, 740, 3), np.uint8)
-    cv2.putText(frame, "SUCCESS", (170, 290), cv2.FONT_HERSHEY_SIMPLEX,
-                2.0, (0, 255, 255), 7, cv2.LINE_AA)
-    found, kind, pixels, box = EndMarker.detect(frame)
-    assert found and "成功" in kind and pixels > 450 and box is not None
+    assert point is not None
+    assert point[1] >= 200
+    assert tracker.last_detected
+    assert cv2.pointPolygonTest(polygon.astype(np.float32), point, False) >= 0
