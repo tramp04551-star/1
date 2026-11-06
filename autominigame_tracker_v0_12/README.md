@@ -324,7 +324,3 @@ python tools/analyze_dual_motion.py source.mp4 --seed-time 1.0 --end-time 3.6 --
 ```
 
 `rotation_center` 目前只作为诊断量：在用户提供的压缩录像上仍有明显抖动，未达到直接驱动定位的精度，因此没有接入实时鼠标控制。该模块当前属于离线实验，不代表已完成实时渐隐目标跟踪。
-
-## Windows EXE 交付
-
-Windows 构建由 GitHub Actions 在 Windows x64 runner 上完成。发布包同时包含单文件版 `AutoMinigameTracker_Standalone.exe` 和便携目录版 `AutoMinigameTracker/AutoMinigameTracker.exe`。单文件版可直接运行；便携版必须保留同目录的 `_internal` 文件夹。构建会执行 OpenCV CSRT 创建/初始化/更新、轮次模板加载及 PySide6 主窗口构造冒烟测试。
