@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setStyleSheet("color:#9ca6b2;font-size:11px;")
         root.addWidget(note)
-        self.setCentralWidget(root)
+        self.setCentralWidget(root_widget)
 
     def _current_settings(self):
         return {
