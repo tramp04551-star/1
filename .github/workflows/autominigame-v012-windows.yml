@@ -1,0 +1,105 @@
+name: AutoMinigameTracker v0.12 Windows EXE
+
+on:
+  push:
+    branches:
+      - "build/autominigame-v0.12"
+    paths:
+      - "autominigame_tracker_v0_12/**"
+      - ".github/workflows/autominigame-v012-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: autominigame_tracker_v0_12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Verify Windows dependencies, CSRT, templates and UI
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q .
+          python main.py --smoke-test
+
+      - name: Build portable folder EXE
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name AutoMinigameTracker --collect-all cv2 --collect-all mss --collect-all PySide6 --add-data "assets;assets" --hidden-import win32gui --hidden-import win32con --hidden-import win32api --hidden-import pytesseract main.py
+
+      - name: Smoke test portable EXE
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\dist\AutoMinigameTracker\AutoMinigameTracker.exe" --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw "Portable EXE smoke test failed: $LASTEXITCODE" }
+
+      - name: Build standalone EXE
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --name AutoMinigameTracker_Standalone --collect-all cv2 --collect-all mss --collect-all PySide6 --add-data "assets;assets" --hidden-import win32gui --hidden-import win32con --hidden-import win32api --hidden-import pytesseract main.py
+
+      - name: Smoke test standalone EXE
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          & ".\dist\AutoMinigameTracker_Standalone.exe" --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw "Standalone EXE smoke test failed: $LASTEXITCODE" }
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item .\dist\AutoMinigameTracker_Standalone.exe .\release\
+          Copy-Item .\dist\AutoMinigameTracker .\release\ -Recurse
+          $info = [ordered]@{
+            version = (Get-Content VERSION -Raw).Trim()
+            commit = "${{ github.sha }}"
+            runner = $env:RUNNER_OS
+            python = (python --version)
+            opencv = (python -c "import cv2; print(cv2.__version__)")
+            csrt_smoke_test = "passed"
+            round_templates = "loaded"
+            pyside6_main_window = "constructed"
+            pyinstaller = "onedir and onefile builds passed"
+            standalone_sha256 = (Get-FileHash .\release\AutoMinigameTracker_Standalone.exe -Algorithm SHA256).Hash
+          }
+          $info | ConvertTo-Json -Depth 4 | Set-Content .\release\build-info.json -Encoding utf8
+          @"
+          AutoMinigameTracker v0.12.0 — Windows x64
+
+          直接运行：
+            AutoMinigameTracker_Standalone.exe
+
+          或运行便携版：
+            AutoMinigameTracker\AutoMinigameTracker.exe
+
+          便携版必须保留 AutoMinigameTracker 文件夹内的全部文件，不能只移动 exe。
+          首次运行请填写游戏窗口标题关键字（默认 Artale），确认游戏窗口处于前台后再点击“开始监测”。
+          停止按钮可随时停止鼠标跟随。程序只在有有效跟踪坐标时移动鼠标。
+          "@ | Set-Content .\release\START_HERE.txt -Encoding utf8
+          Compress-Archive -Path .\release\AutoMinigameTracker_Standalone.exe, .\release\AutoMinigameTracker, .\release\build-info.json, .\release\START_HERE.txt -DestinationPath .\release\AutoMinigameTracker_Windows_x64.zip -Force
+
+      - name: Upload Windows EXE and package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoMinigameTracker-v0.12.0-Windows-x64
+          path: |
+            autominigame_tracker_v0_12/release/AutoMinigameTracker_Standalone.exe
+            autominigame_tracker_v0_12/release/AutoMinigameTracker_Windows_x64.zip
+            autominigame_tracker_v0_12/release/build-info.json
+          retention-days: 30

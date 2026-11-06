@@ -1,0 +1,1 @@
+from .white_shape import WhiteShapeDetector, ShapeDetection
